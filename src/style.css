@@ -754,6 +754,37 @@ button:focus-visible {
   transform: translateY(1px);
 }
 
+/* --------------------------------------------------------- hold-to-inspect */
+
+[data-hint] {
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+
+.hintbubble {
+  position: fixed;
+  z-index: 30;
+  max-width: min(260px, calc(100vw - 24px));
+  padding: 9px 11px;
+  background: rgba(21, 23, 27, 0.96);
+  border: 1px solid var(--bone-dim);
+  border-left: 3px solid var(--sodium);
+  border-radius: 3px 6px 5px 4px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--bone);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.65);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 160ms ease, transform 160ms ease;
+  pointer-events: none;
+}
+
+.hintbubble.on {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 /* --------------------------------------------------------------- sheets */
 
 .sheet {

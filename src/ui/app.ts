@@ -22,6 +22,24 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Sheet = 'none' | 'intro' | 'decks';
 
+/** Hold-to-inspect text for every effect and resource, keyed by data-hint. */
+const HINTS: Record<string, string> = {
+  integrity: 'Integrity — your health. Reach 0 and this clone stops for good. Nothing mends it but eating biomass.',
+  biomass: 'Biomass — harvested from the dead. Eat it to heal, or spend it at a splice pod to evolve a card.',
+  energy: 'Energy — spend it to play Tactics cards. Refills at the start of every combat turn.',
+  oxygen: 'Oxygen — spend it to play Survey cards. Refills each time you act while exploring.',
+  plate: 'Plating — absorbs damage before it reaches integrity. Clears at the start of your next turn.',
+  weak: 'Weaken — deals 25% less damage while it lasts. Fades by 1 each turn.',
+  exposed: 'Exposed — takes 50% more damage from everything. Fades by 1 each turn.',
+  tag: 'Tagged — kill it while tagged and its biomass yields double when harvested.',
+  strength: 'Strength — adds flat damage to every attack this enemy makes. Never fades on its own.',
+  cost: 'Cost — what this card needs to play: energy in a fight, oxygen while exploring.',
+  genes: 'Genes — each dot is one splice. They stack without limit, but each one costs more biomass than the last.',
+};
+
+const LONG_PRESS_MS = 420;
+const MOVE_CANCEL_PX = 10;
+
 export class App {
   private game: Game;
   private stage: Stage;
@@ -31,6 +49,10 @@ export class App {
   private spliceTab: DeckKind = 'combat';
   private busy = false;
   private whisperTimer = 0;
+  private hintTimer = 0;
+  private pressTimer = 0;
+  private pressStart: { x: number; y: number } | null = null;
+  private suppressClick = false;
 
   private hud: HTMLElement;
   private sectorline: HTMLElement;
@@ -40,6 +62,7 @@ export class App {
   private whisper: HTMLElement;
   private dock: HTMLElement;
   private sheetEl: HTMLElement;
+  private hintEl: HTMLElement;
 
   constructor(root: HTMLElement) {
     root.innerHTML = `
@@ -53,7 +76,8 @@ export class App {
         <p class="whisper" aria-live="polite"></p>
       </main>
       <section class="dock"></section>
-      <div class="sheet" hidden></div>`;
+      <div class="sheet" hidden></div>
+      <div class="hintbubble" role="tooltip" aria-live="polite" hidden></div>`;
     this.hud = root.querySelector('.hud')!;
     this.sectorline = root.querySelector('.sectorline')!;
     this.track = root.querySelector('.track')!;
@@ -62,6 +86,7 @@ export class App {
     this.whisper = root.querySelector('.whisper')!;
     this.dock = root.querySelector('.dock')!;
     this.sheetEl = root.querySelector('.sheet')!;
+    this.hintEl = root.querySelector('.hintbubble')!;
 
     const cloneNo = Number(store(CLONE_KEY) ?? '1') || 1;
     this.game = new Game(Date.now() >>> 0, cloneNo);
@@ -69,13 +94,84 @@ export class App {
     if (!store(INTRO_KEY)) this.sheet = 'intro';
 
     root.addEventListener('click', (e) => this.onClick(e));
+    root.addEventListener('pointerdown', (e) => this.onPressStart(e as PointerEvent));
+    root.addEventListener('pointermove', (e) => this.onPressMove(e as PointerEvent));
+    root.addEventListener('pointerup', () => this.cancelPress());
+    root.addEventListener('pointercancel', () => this.cancelPress());
+    root.addEventListener('contextmenu', (e) => {
+      if ((e.target as HTMLElement).closest('[data-hint]')) e.preventDefault();
+    });
     this.flush();
     this.render();
+  }
+
+  // ----------------------------------------------------- hold-to-inspect
+
+  private onPressStart(e: PointerEvent) {
+    this.hideHint();
+    const el = (e.target as HTMLElement).closest<HTMLElement>('[data-hint]');
+    if (!el) return;
+    this.pressStart = { x: e.clientX, y: e.clientY };
+    clearTimeout(this.pressTimer);
+    this.pressTimer = window.setTimeout(() => this.firePress(el), LONG_PRESS_MS);
+  }
+
+  private onPressMove(e: PointerEvent) {
+    if (!this.pressStart) return;
+    const dx = e.clientX - this.pressStart.x;
+    const dy = e.clientY - this.pressStart.y;
+    if (Math.hypot(dx, dy) > MOVE_CANCEL_PX) this.cancelPress();
+  }
+
+  private cancelPress() {
+    clearTimeout(this.pressTimer);
+    this.pressStart = null;
+  }
+
+  private firePress(el: HTMLElement) {
+    if (!this.pressStart) return;
+    const text = HINTS[el.dataset.hint!];
+    const { x, y } = this.pressStart;
+    this.pressStart = null;
+    if (!text) return;
+    this.suppressClick = true;
+    if ('vibrate' in navigator) navigator.vibrate(12);
+    this.showHint(text, x, y);
+  }
+
+  private showHint(text: string, x: number, y: number) {
+    const el = this.hintEl;
+    el.textContent = text;
+    el.hidden = false;
+    el.classList.remove('on');
+    requestAnimationFrame(() => {
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      el.style.left = `${Math.min(Math.max(x - w / 2, 12), window.innerWidth - w - 12)}px`;
+      el.style.top = `${Math.max(y - h - 16, 8)}px`;
+      el.classList.add('on');
+    });
+    clearTimeout(this.hintTimer);
+    this.hintTimer = window.setTimeout(() => this.hideHint(), 3200);
+  }
+
+  private hideHint() {
+    if (this.hintEl.hidden) return;
+    this.hintEl.classList.remove('on');
+    clearTimeout(this.hintTimer);
+    this.hintTimer = window.setTimeout(() => {
+      this.hintEl.hidden = true;
+    }, 200);
   }
 
   // --------------------------------------------------------------- input
 
   private onClick(e: Event) {
+    if (this.suppressClick) {
+      this.suppressClick = false;
+      e.preventDefault();
+      return;
+    }
     const el = (e.target as HTMLElement).closest<HTMLElement>('[data-act]');
     if (!el || this.busy) return;
     const act = el.dataset.act!;
@@ -268,17 +364,17 @@ export class App {
     const pct = Math.max(0, (g.hp / g.maxHp) * 100);
     const extras: string[] = [];
     if (g.phase === 'combat') {
-      if (g.playerBlock > 0) extras.push(`<span class="stat plate">plate <b>${g.playerBlock}</b></span>`);
-      if (g.playerStatus.weak > 0) extras.push(`<span class="stat bad">weak <b>${g.playerStatus.weak}</b></span>`);
-      if (g.playerStatus.exposed > 0) extras.push(`<span class="stat bad">exposed <b>${g.playerStatus.exposed}</b></span>`);
+      if (g.playerBlock > 0) extras.push(`<span class="stat plate" data-hint="plate">plate <b>${g.playerBlock}</b></span>`);
+      if (g.playerStatus.weak > 0) extras.push(`<span class="stat bad" data-hint="weak">weak <b>${g.playerStatus.weak}</b></span>`);
+      if (g.playerStatus.exposed > 0) extras.push(`<span class="stat bad" data-hint="exposed">exposed <b>${g.playerStatus.exposed}</b></span>`);
     }
     this.hud.innerHTML = `
       <div class="clone">#${pad(g.cloneNo)}<small>clone</small></div>
       <div class="meter">
-        <div class="row"><span class="stat">integrity <b>${g.hp}</b>/${g.maxHp}</span>${extras.join('')}</div>
+        <div class="row"><span class="stat" data-hint="integrity">integrity <b>${g.hp}</b>/${g.maxHp}</span>${extras.join('')}</div>
         <div class="bar"><div class="fill" style="width:${pct}%"></div></div>
       </div>
-      <div class="biomass">biomass<b>${g.biomass}</b></div>`;
+      <div class="biomass" data-hint="biomass">biomass<b>${g.biomass}</b></div>`;
     const mods: string[] = [];
     if (g.modifiers.biomass) mods.push('<span class="mod">biomass +50%</span>');
     if (g.modifiers.integrity) mods.push('<span class="mod">+16 integrity</span>');
@@ -319,16 +415,16 @@ export class App {
       const hits = intent.hits && intent.hits > 1 ? `×${intent.hits}` : '';
       parts.push(`<span class="atk">${g.intentDamage(e)}${hits}</span>`);
     }
-    if (intent.block) parts.push(`<span class="blk">▢${intent.block}</span>`);
-    if (intent.strength) parts.push(`<span class="dbf">+${intent.strength} str</span>`);
-    if (intent.weak) parts.push(`<span class="dbf">weaken ${intent.weak}</span>`);
-    if (intent.exposed) parts.push(`<span class="dbf">expose ${intent.exposed}</span>`);
+    if (intent.block) parts.push(`<span class="blk" data-hint="plate">▢${intent.block}</span>`);
+    if (intent.strength) parts.push(`<span class="dbf" data-hint="strength">+${intent.strength} str</span>`);
+    if (intent.weak) parts.push(`<span class="dbf" data-hint="weak">weaken ${intent.weak}</span>`);
+    if (intent.exposed) parts.push(`<span class="dbf" data-hint="exposed">expose ${intent.exposed}</span>`);
     const chips: string[] = [`<span>${e.hp}/${e.maxHp}</span>`];
-    if (e.block) chips.push(`<span class="tagchip plate">▢${e.block}</span>`);
-    if (e.status.tagged) chips.push('<span class="tagchip tag">TAGGED</span>');
-    if (e.status.weak) chips.push(`<span class="tagchip weak">WEAK ${e.status.weak}</span>`);
-    if (e.status.exposed) chips.push(`<span class="tagchip exp">EXP ${e.status.exposed}</span>`);
-    if (e.status.strength) chips.push(`<span class="tagchip str">STR ${e.status.strength}</span>`);
+    if (e.block) chips.push(`<span class="tagchip plate" data-hint="plate">▢${e.block}</span>`);
+    if (e.status.tagged) chips.push('<span class="tagchip tag" data-hint="tag">TAGGED</span>');
+    if (e.status.weak) chips.push(`<span class="tagchip weak" data-hint="weak">WEAK ${e.status.weak}</span>`);
+    if (e.status.exposed) chips.push(`<span class="tagchip exp" data-hint="exposed">EXP ${e.status.exposed}</span>`);
+    if (e.status.strength) chips.push(`<span class="tagchip str" data-hint="strength">STR ${e.status.strength}</span>`);
     return `
       <button class="foe ${e.alive ? '' : 'dead'} ${targeting && e.alive ? 'targetable' : ''}"
         data-act="foe" data-uid="${e.uid}" style="left:${x}%;width:${width}%"
@@ -348,11 +444,11 @@ export class App {
       'card', def.deck, lvl > 0 ? 'evolved' : '', opts.big ? 'big' : '',
       this.selected === card.uid ? 'selected' : '', opts.dim ? 'dim' : '',
     ].filter(Boolean).join(' ');
-    const genes = lvl > 0 ? `<span class="genes" title="${lvl} genes">${'<i></i>'.repeat(Math.min(lvl, 8))}</span>` : '';
+    const genes = lvl > 0 ? `<span class="genes" data-hint="genes" title="${lvl} genes">${'<i></i>'.repeat(Math.min(lvl, 8))}</span>` : '';
     const flavor = opts.big ? `<span class="flavor">${esc(def.flavor)}</span>` : '';
     return `
       <button class="${cls}" data-act="${opts.act ?? 'card'}" data-uid="${card.uid}" ${opts.extra ?? ''}>
-        <span class="cost" aria-label="cost">${s.cost}</span>
+        <span class="cost" data-hint="cost" aria-label="cost">${s.cost}</span>
         <span class="glyph" aria-hidden="true">${def.glyph}</span>
         <span class="name">${esc(cardName(card))}</span>
         <span class="text">${cardText(card).join(' ')}</span>
@@ -373,7 +469,7 @@ export class App {
       const blocked = g.blocker();
       const pips = Array.from({ length: MAX_OXYGEN }, (_, i) => `<i class="${i < g.oxygen ? 'on' : ''}"></i>`).join('');
       bar = `
-        <div class="pips o2" aria-label="${g.oxygen} oxygen">${pips}<span>o₂</span></div>
+        <div class="pips o2" data-hint="oxygen" aria-label="${g.oxygen} oxygen">${pips}<span>o₂</span></div>
         <button class="btn small" data-act="decks">decks</button>
         <span class="spacer"></span>
         ${g.canUsePod() ? '<button class="btn cryo" data-act="pod">splice</button>' : ''}
@@ -387,7 +483,7 @@ export class App {
         : '<p class="empty">hand empty</p>';
       const pips = Array.from({ length: c.energyCap }, (_, i) => `<i class="${i < c.energy ? 'on' : ''}"></i>`).join('');
       bar = `
-        <div class="pips" aria-label="${c.energy} energy">${pips}<span>energy</span></div>
+        <div class="pips" data-hint="energy" aria-label="${c.energy} energy">${pips}<span>energy</span></div>
         <div class="piles">draw ${c.draw.length}<br />used ${c.discard.length}</div>
         <span class="spacer"></span>
         <button class="btn primary" data-act="end">end turn</button>`;
