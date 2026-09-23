@@ -50,6 +50,7 @@ export const MAX_OXYGEN = 3;
 export const SURVEY_HAND = 4;
 export const FORCE_COST = 4;
 const VIEW_RANGE = 4;
+const SAVE_VERSION = 1;
 
 const freshStatus = (): Statuses => ({ weak: 0, exposed: 0, tagged: 0, strength: 0 });
 
@@ -82,7 +83,7 @@ export class Game {
   segments: Segment[] = [];
   pos = 0;
   phase: Phase = 'explore';
-  readonly sector2Start: number;
+  sector2Start: number;
   modifiers: Modifiers = { biomass: false, integrity: false, energy: false };
 
   // Survey (explore) piles
@@ -777,5 +778,74 @@ export class Game {
 
   get progress(): number {
     return this.pos / (this.segments.length - 1);
+  }
+
+  // -------------------------------------------------------------- save
+
+  /** Snapshot the full run as JSON, for browser-storage saves. */
+  serialize(): string {
+    return JSON.stringify({
+      v: SAVE_VERSION,
+      rngState: this.rng.exportState(),
+      cloneNo: this.cloneNo,
+      hp: this.hp,
+      maxHp: this.maxHp,
+      biomass: this.biomass,
+      combatDeck: this.combatDeck,
+      surveyDeck: this.surveyDeck,
+      segments: this.segments,
+      pos: this.pos,
+      phase: this.phase,
+      sector2Start: this.sector2Start,
+      modifiers: this.modifiers,
+      sDraw: this.sDraw,
+      sHand: this.sHand,
+      sDiscard: this.sDiscard,
+      oxygen: this.oxygen,
+      combat: this.combat ? { ...this.combat, buffs: [...this.combat.buffs.entries()] } : null,
+      playerBlock: this.playerBlock,
+      playerStatus: this.playerStatus,
+      corpses: this.corpses,
+      offers: this.offers,
+      podIndex: this.podIndex,
+      nextUid: this.nextUid,
+      message: this.message,
+    });
+  }
+
+  /** Restore a run saved by `serialize()`. Returns null on any mismatch or corruption. */
+  static load(json: string): Game | null {
+    try {
+      const d = JSON.parse(json);
+      if (d?.v !== SAVE_VERSION) return null;
+      const g = new Game(0, d.cloneNo);
+      g.rng.importState(d.rngState);
+      g.hp = d.hp;
+      g.maxHp = d.maxHp;
+      g.biomass = d.biomass;
+      g.combatDeck = d.combatDeck;
+      g.surveyDeck = d.surveyDeck;
+      g.segments = d.segments;
+      g.pos = d.pos;
+      g.phase = d.phase;
+      g.sector2Start = d.sector2Start;
+      g.modifiers = d.modifiers;
+      g.sDraw = d.sDraw;
+      g.sHand = d.sHand;
+      g.sDiscard = d.sDiscard;
+      g.oxygen = d.oxygen;
+      g.combat = d.combat ? { ...d.combat, buffs: new Map(d.combat.buffs) } : null;
+      g.playerBlock = d.playerBlock;
+      g.playerStatus = d.playerStatus;
+      g.corpses = d.corpses;
+      g.offers = d.offers;
+      g.podIndex = d.podIndex;
+      g.nextUid = d.nextUid;
+      g.message = d.message;
+      g.events = [];
+      return g;
+    } catch {
+      return null;
+    }
   }
 }

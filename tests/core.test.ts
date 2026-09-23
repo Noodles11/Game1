@@ -308,6 +308,46 @@ describe('sectors and modifiers', () => {
   });
 });
 
+describe('save and load', () => {
+  it('round-trips a fresh game exactly, including future draws', () => {
+    const g = new Game(42, 3);
+    const restored = Game.load(g.serialize())!;
+    expect(restored).not.toBeNull();
+    expect(restored.cloneNo).toBe(3);
+    expect(restored.sHand.map((c) => c.defId)).toEqual(g.sHand.map((c) => c.defId));
+    expect(restored.segments).toEqual(g.segments);
+    // The RNG continuation point round-trips too: the same next draw matches.
+    expect(restored.rng.next()).toBe(g.rng.next());
+  });
+
+  it('round-trips mid-fight state: hand, energy, empower buffs, corpses', () => {
+    const g = new Game(7);
+    walkToFight(g);
+    const jack: CardInstance = { uid: 8001, defId: 'jack', genes: [] };
+    const scalpel: CardInstance = { uid: 8002, defId: 'scalpel', genes: [] };
+    g.combat!.hand = [jack, scalpel];
+    g.playCombat(jack.uid, g.livingEnemies()[0].uid);
+    g.empowerTarget(scalpel.uid);
+
+    const restored = Game.load(g.serialize())!;
+    expect(restored.phase).toBe('combat');
+    expect(restored.combat!.energy).toBe(g.combat!.energy);
+    expect(restored.combat!.hand.map((c) => c.uid)).toEqual(g.combat!.hand.map((c) => c.uid));
+    expect(restored.combatBonus(scalpel)).toBe(2);
+    expect(restored.livingEnemies().length).toBe(g.livingEnemies().length);
+
+    // And play continues correctly from the restored state.
+    fightToEnd(restored);
+    expect(['harvest', 'combat']).toContain(restored.phase);
+  });
+
+  it('rejects a save from a future/foreign version instead of throwing', () => {
+    const bad = JSON.stringify({ v: 999, garbage: true });
+    expect(Game.load(bad)).toBeNull();
+    expect(Game.load('not json')).toBeNull();
+  });
+});
+
 describe('full run', () => {
   it('a greedy bot can finish or die without errors', () => {
     for (let seed = 1; seed <= 30; seed++) {

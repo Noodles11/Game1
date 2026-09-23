@@ -6,6 +6,15 @@ export class Rng {
     this.s = seed >>> 0;
   }
 
+  /** Current internal state, for saving mid-run and resuming exactly. */
+  exportState(): number {
+    return this.s;
+  }
+
+  importState(s: number): void {
+    this.s = s >>> 0;
+  }
+
   next(): number {
     this.s = (this.s + 0x6d2b79f5) >>> 0;
     let t = this.s;

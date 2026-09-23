@@ -20,29 +20,29 @@ Mark answers inline. **Bold = blocking** for Milestone 1.
 
 ## C. Lore & Tone
 13. **Tone: grim, cozy, humorous, or philosophical?**
-14. Who is the clone? Why cloned? Who made them?
-15. Setting: derelict ships, alien planets, stations, or all?
-16. Enemies: aliens, rogue AI, rival clones, cosmic horror?
-17. Is there an ending? Multiple endings?
+14. ~~Who is the clone? Why cloned? Who made them?~~ **Answered — see DECISIONS.md.**
+15. ~~Setting~~ **Answered.**
+16. ~~Enemies~~ **Answered.**
+17. ~~Is there an ending? Multiple endings?~~ **Answered.**
 18. Story delivery: text events, logs, cutscenes, NPCs?
-19. Does clone death carry narrative weight (memory loss, mutation)?
+19. ~~Does clone death carry narrative weight?~~ **Answered.**
 
 ## D. Gameplay Details
 20. **Run length target (minutes)?**
 21. **Combat: energy-based (Slay the Spire) or other resource?**
 22. Enemy count per fight? Positioning/lanes?
-23. Exploration: node map, grid rooms, or card-drawn rooms?
+23. ~~Exploration: node map, grid rooms, or card-drawn rooms?~~ **Answered — node map.**
 24. Number of playable clone types at launch?
 25. Meta-progression: strong unlocks or cosmetic/knowledge only?
 26. Difficulty tiers / ascension system?
 27. Daily seeded runs or leaderboards?
-28. Any multiplayer, co-op, or async features?
+28. ~~Any multiplayer, co-op, or async features?~~ **Answered — local only, no online.**
 
 ## E. Mobile UX
 29. **Portrait or landscape?**
 30. **One-handed play required?**
 31. Minimum supported devices / OS versions?
-32. Offline-only, or cloud saves/accounts?
+32. ~~Offline-only, or cloud saves/accounts?~~ **Answered — offline, saves in browser storage.**
 33. Haptics, notifications, widgets wanted?
 
 ## F. Art & Audio

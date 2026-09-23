@@ -6,6 +6,7 @@ import { Stage, enemySlot } from '../render/stage';
 
 const CLONE_KEY = 'reprint.clone';
 const INTRO_KEY = 'reprint.introSeen';
+const SAVE_KEY = 'reprint.save';
 
 function store(key: string, value?: string): string | null {
   try {
@@ -88,8 +89,10 @@ export class App {
     this.sheetEl = root.querySelector('.sheet')!;
     this.hintEl = root.querySelector('.hintbubble')!;
 
-    const cloneNo = Number(store(CLONE_KEY) ?? '1') || 1;
-    this.game = new Game(Date.now() >>> 0, cloneNo);
+    const saved = store(SAVE_KEY);
+    const resumed = saved ? Game.load(saved) : null;
+    const cloneNo = resumed?.cloneNo ?? (Number(store(CLONE_KEY) ?? '1') || 1);
+    this.game = resumed ?? new Game(Date.now() >>> 0, cloneNo);
     this.stage = new Stage(root.querySelector('canvas')!, this.game);
     if (!store(INTRO_KEY)) this.sheet = 'intro';
 
@@ -361,6 +364,7 @@ export class App {
     this.renderOverlay();
     this.renderDock();
     this.renderSheet();
+    store(SAVE_KEY, this.game.serialize());
   }
 
   private renderHud() {
