@@ -4,9 +4,9 @@ import {
 } from './cards';
 import { ENEMIES } from './enemies';
 import { Rng } from './rng';
-import type { CardInstance, Corpse, DeckKind, EnemyState, Intent, Segment, Statuses } from './types';
+import type { CardInstance, Corpse, DeckKind, EnemyState, Intent, Modifiers, Segment, Statuses } from './types';
 
-export type Phase = 'explore' | 'combat' | 'harvest' | 'reward' | 'loot' | 'splice' | 'dead' | 'won';
+export type Phase = 'explore' | 'combat' | 'harvest' | 'reward' | 'loot' | 'splice' | 'modifier' | 'dead' | 'won';
 
 export type GameEvent =
   | { type: 'step' }
@@ -29,6 +29,7 @@ export interface CombatState {
   hand: CardInstance[];
   discard: CardInstance[];
   energy: number;
+  energyCap: number;
   turn: number;
   ambush: boolean;
 }
@@ -56,6 +57,15 @@ const WHISPERS = [
   'Frost on the glass. Fingerprints on the inside.',
 ];
 
+const SECTOR2_WHISPERS = [
+  'Portholes, all of them starred with impact cracks. None of them broken through.',
+  'A logbook, water-warped: WE ARE NOT ALONE ON THIS SHIP. WE NEVER WERE.',
+  'The vats down here are older. The labels have worn to nothing.',
+  'Gravity stutters for a second. Something heavy just shifted, deeper in.',
+  'A viewport shows a moon that isn’t on any of the star charts.',
+  'Your reflection in the glass blinks half a second after you do.',
+];
+
 export class Game {
   readonly rng: Rng;
   readonly cloneNo: number;
@@ -67,6 +77,8 @@ export class Game {
   segments: Segment[] = [];
   pos = 0;
   phase: Phase = 'explore';
+  readonly sector2Start: number;
+  modifiers: Modifiers = { biomass: false, integrity: false, energy: false };
 
   // Survey (explore) piles
   sDraw: CardInstance[] = [];
@@ -94,7 +106,9 @@ export class Game {
     this.cloneNo = cloneNo;
     this.combatDeck = STARTER_COMBAT.map((id) => this.makeCard(id));
     this.surveyDeck = STARTER_SURVEY.map((id) => this.makeCard(id));
-    this.segments = this.buildCorridor();
+    const sector1 = this.buildSector1();
+    this.sector2Start = sector1.length;
+    this.segments = [...sector1, ...this.buildSector2()];
     this.sDraw = this.rng.shuffle([...this.surveyDeck]);
     this.updateVisibility();
     this.newSurveyTurn();
@@ -107,7 +121,7 @@ export class Game {
     return { uid: this.nextUid++, defId, genes: [] };
   }
 
-  private buildCorridor(): Segment[] {
+  private buildSector1(): Segment[] {
     const seg = (feature: Segment['feature'], extra: Partial<Segment> = {}): Segment => ({
       feature, dark: false, lit: false, revealed: false, cleared: false, ...extra,
     });
@@ -124,9 +138,34 @@ export class Game {
       seg('none', { whisper: whispers[2] }),
       seg('pod', { whisper: 'Another pod. The liquid is the wrong color.' }),
       seg('door'),
-      seg('enemies', { encounter: ['choir'], whisper: 'Singing. In your voice. In all of them.' }),
+      seg('enemies', { encounter: ['choir'], whisper: 'Singing. In your voice. In all of them.', sectorBoss: 1 }),
+    ];
+  }
+
+  private buildSector2(): Segment[] {
+    const seg = (feature: Segment['feature'], extra: Partial<Segment> = {}): Segment => ({
+      feature, dark: false, lit: false, revealed: false, cleared: false, ...extra,
+    });
+    const whispers = this.rng.sample(SECTOR2_WHISPERS, 3);
+    return [
+      seg('none', { whisper: 'SECTOR 2. The air changes here. Something older breathes it.' }),
+      seg('crate'),
+      seg('enemies', { encounter: ['drone'], whisper: 'A thin whine. Something small is hunting with radar, not eyes.' }),
+      seg('debris', { whisper: whispers[0] }),
+      seg('pod', { whisper: 'A pod down here still hums. Whatever is inside has waited a long time.' }),
+      seg('door', { dark: true }),
+      seg('enemies', { encounter: ['drone', 'bloom'], dark: true, whisper: 'Wet clicking, and under it, something enormous, breathing slow.' }),
+      seg('crate', { whisper: whispers[1] }),
+      seg('none', { whisper: whispers[2] }),
+      seg('pod', { whisper: 'The last pod. The glass is fogged from the inside.' }),
+      seg('door'),
+      seg('enemies', { encounter: ['first'], whisper: 'A shape too large for the hall. It already knows your name.' }),
       seg('exit'),
     ];
+  }
+
+  get sectorNum(): number {
+    return this.pos < this.sector2Start ? 1 : 2;
   }
 
   private emit(e: GameEvent) {
@@ -349,9 +388,29 @@ export class Game {
     }
     this.offers = [];
     const wasReward = this.phase === 'reward';
+    const bossSeg = wasReward ? this.segments[this.pos] : undefined;
+    if (bossSeg?.sectorBoss) {
+      bossSeg.sectorBoss = undefined;
+      this.phase = 'modifier';
+      this.message = '';
+      return;
+    }
     this.phase = 'explore';
     if (wasReward) this.newSurveyTurn();
     else this.message = this.exploreHint();
+  }
+
+  /** Called once after a sector boss falls. Picks a run-long bonus. */
+  chooseModifier(key: keyof Modifiers): void {
+    if (this.phase !== 'modifier') return;
+    this.modifiers[key] = true;
+    if (key === 'integrity') {
+      const bonus = 16;
+      this.maxHp += bonus;
+      this.hp = Math.min(this.maxHp, this.hp + bonus);
+    }
+    this.phase = 'explore';
+    this.newSurveyTurn();
   }
 
   // ----------------------------------------------------------------- pods
@@ -428,6 +487,7 @@ export class Game {
       hand: [],
       discard: [],
       energy: 0,
+      energyCap: MAX_ENERGY,
       turn: 0,
       ambush,
     };
@@ -463,7 +523,8 @@ export class Game {
     const c = this.combat!;
     c.turn++;
     this.playerBlock = 0;
-    c.energy = MAX_ENERGY - (c.ambush && c.turn === 1 ? 1 : 0);
+    c.energyCap = MAX_ENERGY + (this.modifiers.energy ? 1 : 0);
+    c.energy = c.energyCap - (c.ambush && c.turn === 1 ? 1 : 0);
     this.drawCombat(COMBAT_HAND);
   }
 
@@ -658,8 +719,9 @@ export class Game {
   }
 
   private gainBiomass(amount: number) {
-    this.biomass += amount;
-    this.emit({ type: 'biomass', amount });
+    const total = this.modifiers.biomass ? Math.round(amount * 1.5) : amount;
+    this.biomass += total;
+    this.emit({ type: 'biomass', amount: total });
   }
 
   // ------------------------------------------------------------ helpers

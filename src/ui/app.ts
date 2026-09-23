@@ -1,6 +1,6 @@
 import { GENES, cardDef, cardLevel, cardName, cardStats, cardText, needsTarget, splice, spliceCost } from '../core/cards';
 import { ENEMIES } from '../core/enemies';
-import { FORCE_COST, Game, MAX_ENERGY, MAX_OXYGEN, type GameEvent } from '../core/game';
+import { FORCE_COST, Game, MAX_OXYGEN, type GameEvent } from '../core/game';
 import type { CardInstance, DeckKind, EnemyState } from '../core/types';
 import { Stage, enemySlot } from '../render/stage';
 
@@ -33,6 +33,7 @@ export class App {
   private whisperTimer = 0;
 
   private hud: HTMLElement;
+  private sectorline: HTMLElement;
   private track: HTMLElement;
   private overlay: HTMLElement;
   private fx: HTMLElement;
@@ -43,6 +44,7 @@ export class App {
   constructor(root: HTMLElement) {
     root.innerHTML = `
       <header class="hud"></header>
+      <div class="sectorline"></div>
       <div class="track" aria-hidden="true"></div>
       <main class="stage">
         <canvas aria-label="Corridor view"></canvas>
@@ -53,6 +55,7 @@ export class App {
       <section class="dock"></section>
       <div class="sheet" hidden></div>`;
     this.hud = root.querySelector('.hud')!;
+    this.sectorline = root.querySelector('.sectorline')!;
     this.track = root.querySelector('.track')!;
     this.overlay = root.querySelector('.overlay')!;
     this.fx = root.querySelector('.fx')!;
@@ -95,6 +98,7 @@ export class App {
       case 'gene': if (this.spliceSel !== null) g.spliceCard(this.spliceSel, el.dataset.gene!); break;
       case 'tab': this.spliceTab = el.dataset.deck as DeckKind; this.spliceSel = null; break;
       case 'leave-pod': g.leavePod(); break;
+      case 'mod': g.chooseModifier(el.dataset.mod as 'biomass' | 'integrity' | 'energy'); break;
       case 'decks': this.sheet = 'decks'; break;
       case 'close': this.sheet = 'none'; break;
       case 'wake': this.sheet = 'none'; store(INTRO_KEY, '1'); break;
@@ -275,10 +279,17 @@ export class App {
         <div class="bar"><div class="fill" style="width:${pct}%"></div></div>
       </div>
       <div class="biomass">biomass<b>${g.biomass}</b></div>`;
+    const mods: string[] = [];
+    if (g.modifiers.biomass) mods.push('<span class="mod">biomass +50%</span>');
+    if (g.modifiers.integrity) mods.push('<span class="mod">+16 integrity</span>');
+    if (g.modifiers.energy) mods.push('<span class="mod">+1 energy</span>');
+    this.sectorline.innerHTML = `<span>sector ${g.sectorNum} / 2</span><span class="mods">${mods.join('')}</span>`;
     this.track.innerHTML = g.segments
       .map((s, i) => {
-        const cls = [i < g.pos ? 'done' : '', i === g.pos ? 'here' : '', s.feature === 'enemies' && s.revealed ? 'fight' : '']
-          .filter(Boolean).join(' ');
+        const cls = [
+          i < g.pos ? 'done' : '', i === g.pos ? 'here' : '',
+          s.feature === 'enemies' && s.revealed ? 'fight' : '', i === g.sector2Start ? 'edge' : '',
+        ].filter(Boolean).join(' ');
         return `<i class="${cls}"></i>`;
       })
       .join('');
@@ -374,7 +385,7 @@ export class App {
       hand = c.hand.length
         ? c.hand.map((card) => this.cardHtml(card, { dim: !!g.combatPlayable(card) })).join('')
         : '<p class="empty">hand empty</p>';
-      const pips = Array.from({ length: Math.max(MAX_ENERGY, c.energy) }, (_, i) => `<i class="${i < c.energy ? 'on' : ''}"></i>`).join('');
+      const pips = Array.from({ length: c.energyCap }, (_, i) => `<i class="${i < c.energy ? 'on' : ''}"></i>`).join('');
       bar = `
         <div class="pips" aria-label="${c.energy} energy">${pips}<span>energy</span></div>
         <div class="piles">draw ${c.draw.length}<br />used ${c.discard.length}</div>
@@ -406,13 +417,16 @@ export class App {
     } else if (g.phase === 'won') {
       full = true;
       html = `
-        <div class="eyebrow">sector cleared · clone #${pad(g.cloneNo)}</div>
+        <div class="eyebrow">the first is quiet · clone #${pad(g.cloneNo)}</div>
         <h2>the signal is closer</h2>
-        <p>The Choir is quiet. Beyond the last hatch, a window, and stars that were never on any chart.
+        <p>It falls the way a building falls. Beyond it, a window, and stars that were never on any chart.
         The signal pulses once, like a heartbeat. It knows your name. Both of them.</p>
         <p><em>End of the vertical slice. Integrity ${g.hp}/${g.maxHp}, ${g.combatDeck.length + g.surveyDeck.length} cards,
         ${[...g.combatDeck, ...g.surveyDeck].reduce((n, c) => n + c.genes.length, 0)} genes spliced.</em></p>
         <div class="actions"><button class="btn primary" data-act="reprint">print again</button></div>`;
+    } else if (g.phase === 'modifier') {
+      full = true;
+      html = this.modifierHtml();
     } else if (this.sheet === 'intro') {
       full = true;
       html = `
@@ -482,6 +496,28 @@ export class App {
       <p>${loot ? 'Rations long gone. Tools remain.' : 'Its body remembers how it fought. Learn one move.'} Tap a card to add it to your deck.</p>
       <div class="offers">${cards.join('')}</div>
       <div class="actions"><button class="btn" data-act="skip">take nothing</button></div>`;
+  }
+
+  private modifierHtml(): string {
+    const g = this.game;
+    const opts: { key: 'biomass' | 'integrity' | 'energy'; glyph: string; name: string; text: string; flavor: string }[] = [
+      { key: 'biomass', glyph: '◈', name: 'Bioreactor Graft', text: '+50% biomass from every kill and cache.', flavor: 'Your gut learns to keep more of what it takes.' },
+      { key: 'integrity', glyph: '✚', name: 'Reinforced Chassis', text: '+16 max integrity, mended in full.', flavor: 'Denser bone. Thicker cabling. It should hold.' },
+      { key: 'energy', glyph: '⚡', name: 'Auxiliary Cell', text: '+1 energy every turn, for the rest of the run.', flavor: 'A second heart, wired in wrong. It works anyway.' },
+    ];
+    const cards = opts.map((o) => `
+      <button class="card big mod" data-act="mod" data-mod="${o.key}">
+        <span class="glyph" aria-hidden="true">${o.glyph}</span>
+        <span class="name">${o.name}</span>
+        <span class="text">${o.text}</span>
+        <span class="flavor">${o.flavor}</span>
+      </button>`);
+    return `
+      <div class="eyebrow">the choir is silent · clone #${pad(g.cloneNo)}</div>
+      <h2>you are not the first copy</h2>
+      <p>Something in the wreck remembers how to improve a body. Choose what it changes in you.
+      The choice holds for the rest of this run.</p>
+      <div class="offers">${cards.join('')}</div>`;
   }
 
   private spliceHtml(): string {

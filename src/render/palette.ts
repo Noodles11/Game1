@@ -10,6 +10,8 @@ export const INK = {
   flesh: '#b9505a',
   fleshDark: '#5a2530',
   cryo: '#6fa3a0',
+  signal: '#b06fe0',
+  toxin: '#7fd48a',
 };
 
 /** Mix two hex colors. t=0 gives a, t=1 gives b. */

@@ -37,6 +37,43 @@ export const ENEMIES: Record<string, EnemyDef> = {
       { label: 'Diagnose', exposed: 2, line: 'SPECIMEN DEFECTIVE. RECYCLING.' },
     ],
   },
+  drone: {
+    id: 'drone',
+    name: 'Sentry Drone',
+    hp: 20,
+    biomass: 5,
+    flavor: 'It doesn’t see you. It doesn’t need to.',
+    pattern: [
+      { label: 'Lock On', exposed: 1, line: 'TARGET ACQUIRED' },
+      { label: 'Volley', attack: 4, hits: 2 },
+      { label: 'Overcharge', strength: 2, block: 4 },
+    ],
+  },
+  bloom: {
+    id: 'bloom',
+    name: 'Vat Bloom',
+    hp: 26,
+    biomass: 6,
+    flavor: 'It grew from what the vats couldn’t use. It is still growing.',
+    pattern: [
+      { label: 'Swell', block: 8 },
+      { label: 'Spores', weak: 2, line: 'the air tastes like copper' },
+      { label: 'Thrash', attack: 5, hits: 2 },
+    ],
+  },
+  first: {
+    id: 'first',
+    name: 'The First',
+    hp: 96,
+    biomass: 16,
+    flavor: 'The original. Every clone since was a rough draft of this.',
+    pattern: [
+      { label: 'Recognize', weak: 1, line: 'i remember being you' },
+      { label: 'Backhand', attack: 14 },
+      { label: 'We Are Legion', strength: 3, block: 10, line: 'they are all still in here' },
+      { label: 'Cascade', attack: 6, hits: 3 },
+    ],
+  },
   choir: {
     id: 'choir',
     name: 'The Choir',

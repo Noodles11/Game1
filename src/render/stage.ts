@@ -14,6 +14,19 @@ interface EnemyFx {
   dying: boolean;
 }
 
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  size: number;
+  color: string;
+  grav: number;
+  fade: number;
+}
+
 /** Horizontal slot (0..1) for enemy i of n. Shared with the DOM overlay. */
 export function enemySlot(i: number, n: number): number {
   return (i + 1) / (n + 1);
@@ -38,6 +51,9 @@ export class Stage {
   private bump = 0;
   private pulse = 0;
   private enemyFx = new Map<number, EnemyFx>();
+  private enemyPos = new Map<number, { x: number; y: number }>();
+  private particles: Particle[] = [];
+  private lowHp = 0;
   private last = 0;
   private time = 0;
   private readonly reduced: boolean;
@@ -84,19 +100,61 @@ export class Stage {
         this.walkT = 0;
         break;
       case 'bump': this.bump = 1; break;
-      case 'enemyHit': this.fx(e.uid).flash = 1; this.shake = Math.max(this.shake, 0.35); break;
-      case 'enemyDie': this.fx(e.uid).dying = true; break;
+      case 'enemyHit': {
+        this.fx(e.uid).flash = 1;
+        this.shake = Math.max(this.shake, 0.35);
+        const p = this.enemyPos.get(e.uid);
+        if (p && e.amount > 0) this.splatter(p.x, p.y, INK.flesh, e.amount > 12 ? 14 : 8);
+        if (p && e.blocked > 0) this.sparks(p.x, p.y, INK.cryo, 6);
+        break;
+      }
+      case 'enemyDie': {
+        this.fx(e.uid).dying = true;
+        const p = this.enemyPos.get(e.uid);
+        if (p) this.splatter(p.x, p.y, INK.flesh, 22);
+        break;
+      }
       case 'enemyAct': this.fx(e.uid).lunge = 1; break;
       case 'playerHit':
         if (e.amount > 0) {
           this.hurt = 1;
           this.shake = 1;
+          this.splatter(this.cx, this.H * 0.72, INK.flesh, 16);
         }
+        if (e.blocked > 0) this.sparks(this.cx, this.H * 0.72, INK.cryo, 8);
         break;
-      case 'heal': this.heal = 1; break;
-      case 'reveal':
-      case 'splice': this.pulse = 1; break;
+      case 'heal': this.heal = 1; this.sparks(this.cx, this.H * 0.8, INK.cryo, 10, true); break;
+      case 'biomass': this.sparks(this.cx, this.H * 0.8, INK.flesh, 8, true); break;
+      case 'block': this.sparks(this.cx, this.H * 0.78, INK.cryo, 6); break;
+      case 'splice': this.sparks(this.cx, this.H * 0.5, INK.signal, 16, true); this.pulse = 1; break;
+      case 'reveal': this.pulse = 1; break;
       default: break;
+    }
+  }
+
+  private splatter(x: number, y: number, color: string, n: number) {
+    if (this.reduced) return;
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const speed = 40 + Math.random() * 160;
+      this.particles.push({
+        x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed - 40,
+        life: 0, maxLife: 0.5 + Math.random() * 0.5, size: 1.5 + Math.random() * 3,
+        color, grav: 420, fade: 1,
+      });
+    }
+  }
+
+  private sparks(x: number, y: number, color: string, n: number, rise = false) {
+    if (this.reduced) return;
+    for (let i = 0; i < n; i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * (rise ? 1.2 : Math.PI * 2);
+      const speed = 30 + Math.random() * 90;
+      this.particles.push({
+        x: x + (Math.random() - 0.5) * 40, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+        life: 0, maxLife: 0.6 + Math.random() * 0.5, size: 1 + Math.random() * 2,
+        color, grav: rise ? -60 : 160, fade: 1,
+      });
     }
   }
 
@@ -127,6 +185,19 @@ export class Stage {
       f.flash = decay(f.flash, 5);
       f.lunge = decay(f.lunge, 3);
       if (f.dying) f.dead = Math.min(1, f.dead + dt * 2);
+    }
+    const critical = this.game.hp > 0 && this.game.hp / this.game.maxHp < 0.25;
+    this.lowHp += ((critical ? 1 : 0) - this.lowHp) * Math.min(1, dt * 3);
+    for (let i = this.particles.length - 1; i >= 0; i--) {
+      const p = this.particles[i];
+      p.life += dt;
+      if (p.life >= p.maxLife) {
+        this.particles.splice(i, 1);
+        continue;
+      }
+      p.vy += p.grav * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
     }
   }
 
@@ -195,8 +266,30 @@ export class Stage {
 
     const inFight = g.phase === 'combat' || g.phase === 'harvest';
     if (inFight) this.drawFight();
+    this.drawParticles();
     ctx.restore();
     this.drawOverlays(inFight);
+  }
+
+  private drawParticles() {
+    const { ctx } = this;
+    for (const p of this.particles) {
+      const t = p.life / p.maxLife;
+      const alpha = (1 - t) * p.fade;
+      if (alpha <= 0) continue;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      const stretch = Math.min(2.2, 1 + Math.hypot(p.vx, p.vy) * 0.006);
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      const ang = Math.atan2(p.vy, p.vx);
+      ctx.rotate(ang);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, p.size * stretch, p.size * (1 - t * 0.3), 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
   }
 
   private drawSection(i: number) {
@@ -325,7 +418,7 @@ export class Stage {
     if (lampOn && !hidden) {
       const r = this.unit(z) * 0.9;
       const grd = ctx.createRadialGradient(lx, ly, 0, lx, ly, r);
-      grd.addColorStop(0, 'rgba(227,163,59,0.28)');
+      grd.addColorStop(0, 'rgba(227,163,59,0.4)');
       grd.addColorStop(1, 'rgba(227,163,59,0)');
       ctx.fillStyle = grd;
       ctx.fillRect(lx - r, ly - r * 0.2, r * 2, r * 1.2);
@@ -414,7 +507,7 @@ export class Stage {
     // glow
     if (!drained) {
       const grd = ctx.createRadialGradient(x, top + h * 0.5, 0, x, top + h * 0.5, u * 0.9);
-      grd.addColorStop(0, `rgba(111,163,160,${0.35 * (1 - dim)})`);
+      grd.addColorStop(0, `rgba(111,163,160,${0.5 * (1 - dim)})`);
       grd.addColorStop(1, 'rgba(111,163,160,0)');
       ctx.fillStyle = grd;
       ctx.fillRect(x - u, top - u * 0.3, u * 2, h + u * 0.6);
@@ -557,6 +650,7 @@ export class Stage {
       const u = base * (n === 1 ? 1 : 0.95) * Math.min(1.2, 0.75 + size * 0.25);
       const fx = this.fx(e.uid);
       if (!e.alive) fx.dying = true;
+      this.enemyPos.set(e.uid, { x, y: this.H * 0.94 - u * size * 0.55 });
       drawCreature(ctx, e.defId, x, this.H * 0.94, u, {
         t: this.time + i * 1.3, boil: this.boil, flash: fx.flash, lunge: fx.lunge, dead: fx.dead, seed: i + 1, dim: 0,
       });
@@ -585,6 +679,14 @@ export class Stage {
       ctx.beginPath();
       ctx.ellipse(this.cx, this.cy, r, r * 0.6, 0, 0, Math.PI * 2);
       ctx.stroke();
+    }
+    if (this.lowHp > 0.01) {
+      const beat = 0.4 + 0.4 * Math.sin(this.time * 3.4);
+      const vg = ctx.createRadialGradient(this.cx, this.H * 0.5, this.H * 0.15, this.cx, this.H * 0.5, this.H * 0.75);
+      vg.addColorStop(0, 'rgba(185,80,90,0)');
+      vg.addColorStop(1, `rgba(185,80,90,${this.lowHp * beat * 0.55})`);
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, this.W, this.H);
     }
     // faint scanlines, like an old helmet feed
     ctx.fillStyle = 'rgba(0,0,0,0.12)';

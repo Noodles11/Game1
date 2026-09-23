@@ -170,6 +170,77 @@ describe('splice pods', () => {
   });
 });
 
+describe('sectors and modifiers', () => {
+  function playToSectorBoss(seed: number): Game {
+    const g = new Game(seed);
+    for (let guard = 0; guard < 200 && g.phase !== 'modifier' && g.phase !== 'dead'; guard++) {
+      if (g.phase === 'explore') {
+        const pry = g.sHand.find((c) => c.defId === 'pry' && !g.surveyPlayable(c));
+        if (pry) g.playSurvey(pry.uid);
+        else if (g.canUsePod()) g.usePod();
+        else if (g.front && !g.front.revealed) g.advance();
+        else if (g.blocker()) g.force();
+        else g.advance();
+      } else if (g.phase === 'combat') fightToEnd(g);
+      else if (g.phase === 'harvest') {
+        for (const k of g.corpses) (g.hp < 40 ? g.consume(k.uid) : g.render(k.uid));
+        g.finishHarvest();
+      } else if (g.phase === 'reward' || g.phase === 'loot') g.takeOffer(0);
+      else if (g.phase === 'splice') {
+        for (const c of g.combatDeck) {
+          const o = g.offersFor(c.uid)[0];
+          if (o) g.spliceCard(c.uid, o);
+        }
+        g.leavePod();
+      } else break;
+    }
+    return g;
+  }
+
+  /** Bot survival varies by seed; try a few until one reaches the boss gate. */
+  function anyGameAtSectorBoss(): Game {
+    for (let seed = 1; seed <= 60; seed++) {
+      const g = playToSectorBoss(seed);
+      if (g.phase === 'modifier') return g;
+    }
+    throw new Error('no seed reached the sector boss gate');
+  }
+
+  it('offers a run modifier after the sector 1 boss falls, then continues into sector 2', () => {
+    const g = anyGameAtSectorBoss();
+    expect(g.sectorNum).toBe(1);
+    const hpBefore = g.hp;
+    const maxBefore = g.maxHp;
+    g.chooseModifier('integrity');
+    expect(g.modifiers.integrity).toBe(true);
+    expect(g.maxHp).toBe(maxBefore + 16);
+    expect(g.hp).toBe(hpBefore + 16);
+    expect(g.phase).toBe('explore');
+    expect(g.sectorNum).toBe(1); // still standing on the boss segment
+    g.advance();
+    expect(g.sectorNum).toBe(2);
+  });
+
+  it('the energy modifier raises the per-turn cap', () => {
+    const g = new Game(9);
+    g.modifiers.energy = true;
+    walkToFight(g);
+    expect(g.combat!.energyCap).toBe(4);
+    expect(g.combat!.energy).toBe(4);
+  });
+
+  it('the biomass modifier scales every gain by 1.5x', () => {
+    const g = new Game(9);
+    g.modifiers.biomass = true;
+    walkToFight(g);
+    fightToEnd(g);
+    const k = g.corpses[0];
+    const before = g.biomass;
+    g.render(k.uid);
+    expect(g.biomass).toBe(before + Math.round(g.corpseYield(k) * 1.5));
+  });
+});
+
 describe('full run', () => {
   it('a greedy bot can finish or die without errors', () => {
     for (let seed = 1; seed <= 30; seed++) {
@@ -187,6 +258,7 @@ describe('full run', () => {
           for (const k of g.corpses) (g.hp < 20 ? g.consume(k.uid) : g.render(k.uid));
           g.finishHarvest();
         } else if (g.phase === 'reward' || g.phase === 'loot') g.takeOffer(0);
+        else if (g.phase === 'modifier') g.chooseModifier('integrity');
         else if (g.phase === 'splice') {
           const c = g.combatDeck[0];
           const o = g.offersFor(c.uid)[0];

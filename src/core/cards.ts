@@ -67,6 +67,11 @@ export const CARDS: Record<string, CardDef> = {
     base: { cost: 1, damage: 5, tag: 1, block: 2 },
     flavor: 'Reel it close. Keep it fresh.',
   },
+  graft: {
+    id: 'graft', name: 'Graft', deck: 'combat', glyph: '✣',
+    base: { cost: 1, damage: 4, heal: 2 },
+    flavor: 'Take a piece. Wear it. It helps, for now.',
+  },
 
   // ---- Survey deck ----
   override: {
@@ -99,12 +104,17 @@ export const CARDS: Record<string, CardDef> = {
     base: { cost: 1, exposed: 1 },
     flavor: 'Red light. Things in it flinch.',
   },
+  beacon: {
+    id: 'beacon', name: 'Beacon', deck: 'survey', glyph: '◈',
+    base: { cost: 1, draw: 1, biomass: 1 },
+    flavor: 'A pulse into the dark. Something always answers.',
+  },
 };
 
 export const STARTER_COMBAT = ['scalpel', 'scalpel', 'scalpel', 'scalpel', 'brace', 'brace', 'harpoon', 'flense'];
 export const STARTER_SURVEY = ['override', 'override', 'cutter', 'cutter', 'scan', 'pry', 'stim'];
-export const REWARD_COMBAT = ['scatter', 'spike', 'bonesaw', 'adrenal', 'echo', 'hook', 'flense', 'harpoon'];
-export const REWARD_SURVEY = ['flare', 'scan', 'stim', 'pry', 'override', 'cutter'];
+export const REWARD_COMBAT = ['scatter', 'spike', 'bonesaw', 'adrenal', 'echo', 'hook', 'flense', 'harpoon', 'graft'];
+export const REWARD_SURVEY = ['flare', 'scan', 'stim', 'pry', 'override', 'cutter', 'beacon'];
 
 // ---- Genes: how cards evolve ----
 

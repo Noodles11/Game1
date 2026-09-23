@@ -84,6 +84,15 @@ export interface Segment {
   whisper?: string;
   /** Exposed stacks enemies here start with (from Flare). */
   flareExposed?: number;
+  /** Set on a sector's final fight. Winning it offers a run modifier. */
+  sectorBoss?: number;
+}
+
+/** Permanent-for-the-run bonuses picked after a sector boss falls. */
+export interface Modifiers {
+  biomass: boolean;
+  integrity: boolean;
+  energy: boolean;
 }
 
 export interface Corpse {
