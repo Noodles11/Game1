@@ -23,6 +23,12 @@ function fightToEnd(g: Game) {
       for (const c of [...g.combat!.hand]) {
         if (g.phase !== 'combat') break;
         if (g.playCombat(c.uid, g.livingEnemies()[0]?.uid)) played = true;
+        const pending = g.combat?.pendingEmpower;
+        if (pending) {
+          const target = g.combat!.hand[0];
+          if (target) g.empowerTarget(target.uid);
+          else g.skipEmpower();
+        }
       }
     }
     if (g.phase === 'combat') g.endTurn();
@@ -167,6 +173,67 @@ describe('splice pods', () => {
     expect(scalpel.genes).toEqual([offers[0]]);
     g.leavePod();
     expect(g.canUsePod()).toBe(false);
+  });
+});
+
+describe('dynamic card effects', () => {
+  it('Overclock Jack empowers a chosen card in hand for the rest of the fight', () => {
+    const g = new Game(5);
+    walkToFight(g);
+    const jack: CardInstance = { uid: 9001, defId: 'jack', genes: [] };
+    const scalpel: CardInstance = { uid: 9002, defId: 'scalpel', genes: [] };
+    g.combat!.hand = [jack, scalpel];
+    const [target] = g.livingEnemies();
+
+    expect(g.playCombat(jack.uid, target.uid)).toBe(true);
+    expect(g.combat!.pendingEmpower).toEqual({ amount: 2 });
+    expect(g.combatBonus(scalpel)).toBe(0);
+
+    expect(g.empowerTarget(scalpel.uid)).toBe(true);
+    expect(g.combat!.pendingEmpower).toBeNull();
+    expect(g.combatBonus(scalpel)).toBe(2);
+    expect(g.displayStats(scalpel).damage).toBe(cardStats(scalpel).damage + 2);
+
+    // The buff is keyed by uid, so it survives a discard and later redraw.
+    g.combat!.discard.push(scalpel);
+    g.combat!.hand = [];
+    expect(g.combatBonus(scalpel)).toBe(2);
+  });
+
+  it('an unresolved Empower is dropped at end of turn, never blocking play', () => {
+    const g = new Game(5);
+    walkToFight(g);
+    const jack: CardInstance = { uid: 9004, defId: 'jack', genes: [] };
+    const spare: CardInstance = { uid: 9005, defId: 'brace', genes: [] };
+    g.combat!.hand = [jack, spare];
+    g.playCombat(jack.uid, g.livingEnemies()[0].uid);
+    expect(g.combat!.pendingEmpower).not.toBeNull();
+    g.endTurn();
+    expect(g.combat!.pendingEmpower).toBeNull();
+  });
+
+  it('Siphon Blade converts a share of the damage it deals into biomass', () => {
+    const g = new Game(5);
+    walkToFight(g);
+    const siphon: CardInstance = { uid: 9003, defId: 'siphon', genes: [] };
+    g.combat!.hand = [siphon];
+    const target = g.livingEnemies()[0];
+    const before = g.biomass;
+
+    expect(g.playCombat(siphon.uid, target.uid)).toBe(true);
+    const dealt = Math.min(9, target.maxHp);
+    expect(g.biomass).toBe(before + Math.floor(dealt * 0.5));
+  });
+
+  it('Overclock and Leech genes bond with any damaging card', () => {
+    const empowered = splice(card('scalpel'), 'overclock');
+    expect(cardStats(empowered).empower).toBe(2);
+    expect(cardText(empowered)).toContain('On hit, choose a card in hand: +2 damage, this fight.');
+    expect(() => splice(card('brace'), 'overclock')).toThrow();
+
+    const leeching = splice(card('scalpel'), 'leech');
+    expect(cardStats(leeching).drain).toBe(25);
+    expect(cardText(leeching)).toContain('Gain biomass equal to 25% of damage dealt.');
   });
 });
 

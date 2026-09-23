@@ -13,6 +13,8 @@ const EMPTY: CardStats = {
   exposed: 0,
   heal: 0,
   biomass: 0,
+  empower: 0,
+  drain: 0,
 };
 
 export const CARDS: Record<string, CardDef> = {
@@ -72,6 +74,16 @@ export const CARDS: Record<string, CardDef> = {
     base: { cost: 1, damage: 4, heal: 2 },
     flavor: 'Take a piece. Wear it. It helps, for now.',
   },
+  jack: {
+    id: 'jack', name: 'Overclock Jack', deck: 'combat', glyph: '⟴',
+    base: { cost: 1, damage: 4, empower: 2 },
+    flavor: 'Patch the wound wrong, on purpose. Something else learns to hit harder.',
+  },
+  siphon: {
+    id: 'siphon', name: 'Siphon Blade', deck: 'combat', glyph: '⟠',
+    base: { cost: 2, damage: 9, drain: 50 },
+    flavor: 'Half of what it takes, it gives back to you.',
+  },
 
   // ---- Survey deck ----
   override: {
@@ -113,7 +125,7 @@ export const CARDS: Record<string, CardDef> = {
 
 export const STARTER_COMBAT = ['scalpel', 'scalpel', 'scalpel', 'scalpel', 'brace', 'brace', 'harpoon', 'flense'];
 export const STARTER_SURVEY = ['override', 'override', 'cutter', 'cutter', 'scan', 'pry', 'stim'];
-export const REWARD_COMBAT = ['scatter', 'spike', 'bonesaw', 'adrenal', 'echo', 'hook', 'flense', 'harpoon', 'graft'];
+export const REWARD_COMBAT = ['scatter', 'spike', 'bonesaw', 'adrenal', 'echo', 'hook', 'flense', 'harpoon', 'graft', 'jack', 'siphon'];
 export const REWARD_SURVEY = ['flare', 'scan', 'stim', 'pry', 'override', 'cutter', 'beacon'];
 
 // ---- Genes: how cards evolve ----
@@ -174,6 +186,14 @@ export const GENES: Record<string, Gene> = {
     id: 'scavenger', name: 'Scavenger', prefix: 'Scavenging', deck: 'survey', cost: 3,
     text: 'Also +2 biomass', canApply: () => true, apply: (s) => { s.biomass += 2; },
   },
+  overclock: {
+    id: 'overclock', name: 'Overclock', prefix: 'Overclocked', deck: 'combat', cost: 6,
+    text: 'On hit, empower another card +2', canApply: (s) => s.damage > 0, apply: (s) => { s.empower += 2; },
+  },
+  leech: {
+    id: 'leech', name: 'Leech', prefix: 'Leeching', deck: 'combat', cost: 5,
+    text: '+25% damage dealt as biomass', canApply: (s) => s.damage > 0, apply: (s) => { s.drain += 25; },
+  },
 };
 
 export function cardDef(card: CardInstance): CardDef {
@@ -231,10 +251,13 @@ const ACTION_TEXT: Record<string, string> = {
   flare: 'Light 2 ahead.',
 };
 
-/** Card rules text, generated from its current stats. */
-export function cardText(card: CardInstance): string[] {
+/**
+ * Card rules text, generated from its current stats. Pass `statsOverride`
+ * to describe a temporarily-buffed version (e.g. mid-fight, after Empower).
+ */
+export function cardText(card: CardInstance, statsOverride?: CardStats): string[] {
   const def = cardDef(card);
-  const s = cardStats(card);
+  const s = statsOverride ?? cardStats(card);
   const lines: string[] = [];
   if (def.action && ACTION_TEXT[def.action]) lines.push(ACTION_TEXT[def.action]);
   if (s.damage > 0) {
@@ -249,6 +272,8 @@ export function cardText(card: CardInstance): string[] {
   if (s.draw > 0) lines.push(`Draw ${s.draw}.`);
   if (s.heal > 0) lines.push(`Heal ${s.heal}.`);
   if (s.biomass > 0) lines.push(`+${s.biomass} biomass.`);
+  if (s.empower > 0) lines.push(`On hit, choose a card in hand: +${s.empower} damage, this fight.`);
+  if (s.drain > 0) lines.push(s.drain >= 100 ? 'Gain biomass equal to damage dealt.' : `Gain biomass equal to ${s.drain}% of damage dealt.`);
   return lines;
 }
 

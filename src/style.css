@@ -499,6 +499,15 @@ button:focus-visible {
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5), 0 0 12px rgba(185, 80, 90, 0.25);
 }
 
+.card.buffed {
+  border-color: var(--signal);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.5), 0 0 12px rgba(176, 111, 224, 0.35);
+}
+
+.card.buffed .text {
+  color: var(--signal);
+}
+
 .card.selected {
   transform: translateY(-12px);
   border-color: var(--accent);
@@ -873,6 +882,7 @@ button:focus-visible {
 .sheet .rules .c { color: var(--sodium); }
 .sheet .rules .s { color: var(--cryo); }
 .sheet .rules .b { color: var(--flesh); }
+.sheet .rules .v { color: var(--signal); }
 
 .actions {
   display: flex;

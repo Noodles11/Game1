@@ -16,6 +16,10 @@ export interface CardStats {
   exposed: number;
   heal: number;
   biomass: number;
+  /** On hit, let the player choose another card in hand to gain +N damage for the rest of the fight. */
+  empower: number;
+  /** Percent (0-100) of damage this card deals that also becomes biomass, immediately. */
+  drain: number;
 }
 
 export interface CardDef {

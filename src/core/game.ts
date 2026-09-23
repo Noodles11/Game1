@@ -4,7 +4,7 @@ import {
 } from './cards';
 import { ENEMIES } from './enemies';
 import { Rng } from './rng';
-import type { CardInstance, Corpse, DeckKind, EnemyState, Intent, Modifiers, Segment, Statuses } from './types';
+import type { CardInstance, CardStats, Corpse, DeckKind, EnemyState, Intent, Modifiers, Segment, Statuses } from './types';
 
 export type Phase = 'explore' | 'combat' | 'harvest' | 'reward' | 'loot' | 'splice' | 'modifier' | 'dead' | 'won';
 
@@ -21,7 +21,8 @@ export type GameEvent =
   | { type: 'whisper'; text: string }
   | { type: 'line'; uid: number; text: string }
   | { type: 'reveal' }
-  | { type: 'splice'; uid: number };
+  | { type: 'splice'; uid: number }
+  | { type: 'empower'; uid: number; amount: number };
 
 export interface CombatState {
   enemies: EnemyState[];
@@ -32,6 +33,10 @@ export interface CombatState {
   energyCap: number;
   turn: number;
   ambush: boolean;
+  /** Extra damage granted to a card (by uid) via Empower, for the rest of this fight. */
+  buffs: Map<number, number>;
+  /** Set right after an Empower card hits. The player must pick a card in hand to receive it. */
+  pendingEmpower: { amount: number } | null;
 }
 
 export interface Offer {
@@ -490,6 +495,8 @@ export class Game {
       energyCap: MAX_ENERGY,
       turn: 0,
       ambush,
+      buffs: new Map(),
+      pendingEmpower: null,
     };
     this.playerStatus = freshStatus();
     this.corpses = [];
@@ -550,6 +557,36 @@ export class Game {
     return null;
   }
 
+  /** Bonus damage this card currently carries from Empower, this fight. */
+  combatBonus(card: CardInstance): number {
+    return this.combat?.buffs.get(card.uid) ?? 0;
+  }
+
+  /** Stats for display: base stats plus any Empower bonus, so the UI shows the true numbers. */
+  displayStats(card: CardInstance): CardStats {
+    const s = cardStats(card);
+    const bonus = this.combatBonus(card);
+    return bonus > 0 ? { ...s, damage: s.damage + bonus } : s;
+  }
+
+  /** Resolve a pending Empower by picking the card in hand that gains the bonus. */
+  empowerTarget(uid: number): boolean {
+    const c = this.combat;
+    if (!c?.pendingEmpower) return false;
+    const target = c.hand.find((h) => h.uid === uid);
+    if (!target) return false;
+    const amount = c.pendingEmpower.amount;
+    c.buffs.set(uid, (c.buffs.get(uid) ?? 0) + amount);
+    c.pendingEmpower = null;
+    this.emit({ type: 'empower', uid, amount });
+    return true;
+  }
+
+  /** Decline to empower anything with a pending bonus. */
+  skipEmpower(): void {
+    if (this.combat) this.combat.pendingEmpower = null;
+  }
+
   playCombat(uid: number, targetUid?: number): boolean {
     const c = this.combat;
     if (!c || this.phase !== 'combat') return false;
@@ -581,10 +618,12 @@ export class Game {
       this.playerBlock += s.block;
       this.emit({ type: 'block', amount: s.block });
     }
+    const bonus = this.combatBonus(card);
+    let dealt = 0;
     for (const t of targets) {
       for (let h = 0; h < s.hits && t.alive; h++) {
-        const dmg = this.scale(s.damage + this.playerStatus.strength, this.playerStatus.weak > 0, t.status.exposed > 0);
-        this.damageEnemy(t, dmg);
+        const dmg = this.scale(s.damage + bonus + this.playerStatus.strength, this.playerStatus.weak > 0, t.status.exposed > 0);
+        dealt += this.damageEnemy(t, dmg);
       }
       if (t.alive) {
         t.status.tagged += s.tag;
@@ -598,18 +637,22 @@ export class Game {
     }
     c.energy += s.energy;
     if (s.draw > 0) this.drawCombat(s.draw);
+    if (s.drain > 0 && dealt > 0) this.gainBiomass(Math.floor(dealt * s.drain / 100));
+    if (s.empower > 0 && c.hand.length > 0) c.pendingEmpower = { amount: s.empower };
     this.message = '';
 
     if (this.livingEnemies().length === 0) this.winCombat();
     return true;
   }
 
-  private damageEnemy(e: EnemyState, amount: number) {
-    if (amount <= 0) return;
+  /** Damages an enemy and returns how much of it actually landed (after their plating). */
+  private damageEnemy(e: EnemyState, amount: number): number {
+    if (amount <= 0) return 0;
     const blocked = Math.min(e.block, amount);
     e.block -= blocked;
-    e.hp -= amount - blocked;
-    this.emit({ type: 'enemyHit', uid: e.uid, amount: amount - blocked, blocked });
+    const dealt = amount - blocked;
+    e.hp -= dealt;
+    this.emit({ type: 'enemyHit', uid: e.uid, amount: dealt, blocked });
     if (e.hp <= 0) {
       e.hp = 0;
       e.alive = false;
@@ -617,11 +660,13 @@ export class Game {
       this.corpses.push({ uid: e.uid, defId: e.defId, biomass: def.biomass, tagged: e.status.tagged > 0, taken: false });
       this.emit({ type: 'enemyDie', uid: e.uid });
     }
+    return dealt;
   }
 
   endTurn(): void {
     const c = this.combat;
     if (!c || this.phase !== 'combat') return;
+    c.pendingEmpower = null;
     c.discard.push(...c.hand);
     c.hand = [];
     this.tickStatus(this.playerStatus);

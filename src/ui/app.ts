@@ -1,4 +1,4 @@
-import { GENES, cardDef, cardLevel, cardName, cardStats, cardText, needsTarget, splice, spliceCost } from '../core/cards';
+import { GENES, cardDef, cardLevel, cardName, cardText, needsTarget, splice, spliceCost } from '../core/cards';
 import { ENEMIES } from '../core/enemies';
 import { FORCE_COST, Game, MAX_OXYGEN, type GameEvent } from '../core/game';
 import type { CardInstance, DeckKind, EnemyState } from '../core/types';
@@ -195,6 +195,8 @@ export class App {
       case 'tab': this.spliceTab = el.dataset.deck as DeckKind; this.spliceSel = null; break;
       case 'leave-pod': g.leavePod(); break;
       case 'mod': g.chooseModifier(el.dataset.mod as 'biomass' | 'integrity' | 'energy'); break;
+      case 'empower': g.empowerTarget(uid); break;
+      case 'skip-empower': g.skipEmpower(); break;
       case 'decks': this.sheet = 'decks'; break;
       case 'close': this.sheet = 'none'; break;
       case 'wake': this.sheet = 'none'; store(INTRO_KEY, '1'); break;
@@ -220,6 +222,7 @@ export class App {
       return;
     }
     if (g.phase === 'combat' && g.combat) {
+      if (g.combat.pendingEmpower) return;
       const card = g.combat.hand.find((c) => c.uid === uid);
       if (!card) return;
       const multi = needsTarget(card) && g.livingEnemies().length > 1;
@@ -235,7 +238,7 @@ export class App {
 
   private tapFoe(uid: number) {
     const g = this.game;
-    if (g.phase !== 'combat') return;
+    if (g.phase !== 'combat' || g.combat?.pendingEmpower) return;
     if (this.selected !== null) {
       if (g.playCombat(this.selected, uid)) this.selected = null;
       return;
@@ -248,7 +251,7 @@ export class App {
   }
 
   private describe(card: CardInstance, reason: string | null): string {
-    const txt = cardText(card).join(' ');
+    const txt = cardText(card, this.game.displayStats(card)).join(' ');
     const tail = reason ? ` <strong>${reason}</strong>` : ' <em>Tap again to play.</em>';
     return `<strong>${esc(cardName(card))}</strong> — ${txt}${tail}`;
   }
@@ -326,6 +329,7 @@ export class App {
       case 'biomass': this.float(`+${e.amount} biomass`, 'bio', 50, 45); break;
       case 'block': this.float(`▢ +${e.amount}`, 'block', 50, 70); break;
       case 'splice': this.float('SPLICED', 'bio', 50, 30); break;
+      case 'empower': this.float(`+${e.amount} ARMED`, 'bio', 50, 40); break;
       case 'whisper': this.say(e.text); break;
       case 'line': {
         const x = this.slotOf(e.uid);
@@ -438,10 +442,11 @@ export class App {
 
   private cardHtml(card: CardInstance, opts: { big?: boolean; dim?: boolean; act?: string; extra?: string } = {}): string {
     const def = cardDef(card);
-    const s = cardStats(card);
+    const s = this.game.displayStats(card);
     const lvl = cardLevel(card);
+    const buffed = this.game.combatBonus(card) > 0;
     const cls = [
-      'card', def.deck, lvl > 0 ? 'evolved' : '', opts.big ? 'big' : '',
+      'card', def.deck, lvl > 0 ? 'evolved' : '', buffed ? 'buffed' : '', opts.big ? 'big' : '',
       this.selected === card.uid ? 'selected' : '', opts.dim ? 'dim' : '',
     ].filter(Boolean).join(' ');
     const genes = lvl > 0 ? `<span class="genes" data-hint="genes" title="${lvl} genes">${'<i></i>'.repeat(Math.min(lvl, 8))}</span>` : '';
@@ -451,7 +456,7 @@ export class App {
         <span class="cost" data-hint="cost" aria-label="cost">${s.cost}</span>
         <span class="glyph" aria-hidden="true">${def.glyph}</span>
         <span class="name">${esc(cardName(card))}</span>
-        <span class="text">${cardText(card).join(' ')}</span>
+        <span class="text">${cardText(card, s).join(' ')}</span>
         ${flavor}
         ${genes}
         <span class="kind">${def.deck === 'combat' ? 'tactic' : 'survey'}</span>
@@ -460,6 +465,10 @@ export class App {
 
   private renderDock() {
     const g = this.game;
+    if (g.phase === 'combat' && g.combat?.pendingEmpower) {
+      this.dock.innerHTML = this.empowerHtml(g.combat.pendingEmpower.amount);
+      return;
+    }
     let hand = '';
     let bar = '';
     if (g.phase === 'explore') {
@@ -494,6 +503,15 @@ export class App {
       <p class="hint">${g.message || '&nbsp;'}</p>
       <div class="hand">${hand}</div>
       <div class="bar">${bar}</div>`;
+  }
+
+  private empowerHtml(amount: number): string {
+    const g = this.game;
+    const cards = g.combat!.hand.map((c) => this.cardHtml(c, { act: 'empower' }));
+    return `
+      <p class="hint"><strong>Choose a card to empower.</strong> <em>+${amount} damage, for the rest of this fight.</em></p>
+      <div class="hand">${cards.length ? cards.join('') : '<p class="empty">no other card to empower</p>'}</div>
+      <div class="bar"><span class="spacer"></span><button class="btn" data-act="skip-empower">skip</button></div>`;
   }
 
   // -------------------------------------------------------------- sheets
@@ -534,6 +552,7 @@ export class App {
           <li><b class="s">survey</b>Blue cards cost oxygen. They open hatches, cut wreckage, light the dark and pry lockers.</li>
           <li><b class="c">tactics</b>Amber cards cost energy. Read what each enemy intends, then strike first.</li>
           <li><b class="b">biomass</b>Nothing heals you but what you kill. Eat it to mend, or render it to splice genes into your cards at a pod.</li>
+          <li><b class="v">splice</b>Some cards reach further: empower another card in your hand, or turn the damage they deal straight into biomass.</li>
         </ul>
         <div class="actions"><button class="btn primary" data-act="wake">wake up</button></div>`;
     } else if (this.sheet === 'decks') {
