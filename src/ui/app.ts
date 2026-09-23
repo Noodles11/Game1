@@ -1,0 +1,526 @@
+import { GENES, cardDef, cardLevel, cardName, cardStats, cardText, needsTarget, splice, spliceCost } from '../core/cards';
+import { ENEMIES } from '../core/enemies';
+import { FORCE_COST, Game, MAX_ENERGY, MAX_OXYGEN, type GameEvent } from '../core/game';
+import type { CardInstance, DeckKind, EnemyState } from '../core/types';
+import { Stage, enemySlot } from '../render/stage';
+
+const CLONE_KEY = 'reprint.clone';
+const INTRO_KEY = 'reprint.introSeen';
+
+function store(key: string, value?: string): string | null {
+  try {
+    if (value !== undefined) localStorage.setItem(key, value);
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+const pad = (n: number) => String(n).padStart(4, '0');
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+type Sheet = 'none' | 'intro' | 'decks';
+
+export class App {
+  private game: Game;
+  private stage: Stage;
+  private selected: number | null = null;
+  private sheet: Sheet = 'none';
+  private spliceSel: number | null = null;
+  private spliceTab: DeckKind = 'combat';
+  private busy = false;
+  private whisperTimer = 0;
+
+  private hud: HTMLElement;
+  private track: HTMLElement;
+  private overlay: HTMLElement;
+  private fx: HTMLElement;
+  private whisper: HTMLElement;
+  private dock: HTMLElement;
+  private sheetEl: HTMLElement;
+
+  constructor(root: HTMLElement) {
+    root.innerHTML = `
+      <header class="hud"></header>
+      <div class="track" aria-hidden="true"></div>
+      <main class="stage">
+        <canvas aria-label="Corridor view"></canvas>
+        <div class="overlay"></div>
+        <div class="overlay fx"></div>
+        <p class="whisper" aria-live="polite"></p>
+      </main>
+      <section class="dock"></section>
+      <div class="sheet" hidden></div>`;
+    this.hud = root.querySelector('.hud')!;
+    this.track = root.querySelector('.track')!;
+    this.overlay = root.querySelector('.overlay')!;
+    this.fx = root.querySelector('.fx')!;
+    this.whisper = root.querySelector('.whisper')!;
+    this.dock = root.querySelector('.dock')!;
+    this.sheetEl = root.querySelector('.sheet')!;
+
+    const cloneNo = Number(store(CLONE_KEY) ?? '1') || 1;
+    this.game = new Game(Date.now() >>> 0, cloneNo);
+    this.stage = new Stage(root.querySelector('canvas')!, this.game);
+    if (!store(INTRO_KEY)) this.sheet = 'intro';
+
+    root.addEventListener('click', (e) => this.onClick(e));
+    this.flush();
+    this.render();
+  }
+
+  // --------------------------------------------------------------- input
+
+  private onClick(e: Event) {
+    const el = (e.target as HTMLElement).closest<HTMLElement>('[data-act]');
+    if (!el || this.busy) return;
+    const act = el.dataset.act!;
+    const uid = Number(el.dataset.uid);
+    const g = this.game;
+
+    switch (act) {
+      case 'card': this.tapCard(uid); break;
+      case 'foe': this.tapFoe(uid); break;
+      case 'advance': this.selected = null; g.advance(); break;
+      case 'force': g.force(); break;
+      case 'pod': this.spliceSel = null; g.usePod(); break;
+      case 'end': this.selected = null; g.endTurn(); break;
+      case 'eat': g.consume(uid); break;
+      case 'render': g.render(uid); break;
+      case 'harvest-done': g.finishHarvest(); break;
+      case 'offer': g.takeOffer(Number(el.dataset.i)); break;
+      case 'skip': g.takeOffer(null); break;
+      case 'splice-card': this.spliceSel = uid; break;
+      case 'gene': if (this.spliceSel !== null) g.spliceCard(this.spliceSel, el.dataset.gene!); break;
+      case 'tab': this.spliceTab = el.dataset.deck as DeckKind; this.spliceSel = null; break;
+      case 'leave-pod': g.leavePod(); break;
+      case 'decks': this.sheet = 'decks'; break;
+      case 'close': this.sheet = 'none'; break;
+      case 'wake': this.sheet = 'none'; store(INTRO_KEY, '1'); break;
+      case 'how': this.sheet = 'intro'; break;
+      case 'reprint': this.reprint(); return;
+      default: return;
+    }
+    this.flush();
+    this.render();
+  }
+
+  private tapCard(uid: number) {
+    const g = this.game;
+    if (g.phase === 'explore') {
+      const card = g.sHand.find((c) => c.uid === uid);
+      if (!card) return;
+      if (this.selected === uid) {
+        if (g.playSurvey(uid)) this.selected = null;
+      } else {
+        this.selected = uid;
+        g.message = this.describe(card, g.surveyPlayable(card));
+      }
+      return;
+    }
+    if (g.phase === 'combat' && g.combat) {
+      const card = g.combat.hand.find((c) => c.uid === uid);
+      if (!card) return;
+      const multi = needsTarget(card) && g.livingEnemies().length > 1;
+      if (this.selected === uid && !multi) {
+        if (g.playCombat(uid)) this.selected = null;
+      } else {
+        this.selected = uid;
+        const reason = g.combatPlayable(card);
+        g.message = this.describe(card, reason) + (multi && !reason ? ' <strong>Tap an enemy.</strong>' : '');
+      }
+    }
+  }
+
+  private tapFoe(uid: number) {
+    const g = this.game;
+    if (g.phase !== 'combat') return;
+    if (this.selected !== null) {
+      if (g.playCombat(this.selected, uid)) this.selected = null;
+      return;
+    }
+    const e = g.combat?.enemies.find((x) => x.uid === uid);
+    if (e) {
+      const def = ENEMIES[e.defId];
+      g.message = `<strong>${def.name}.</strong> <em>${def.flavor}</em>`;
+    }
+  }
+
+  private describe(card: CardInstance, reason: string | null): string {
+    const txt = cardText(card).join(' ');
+    const tail = reason ? ` <strong>${reason}</strong>` : ' <em>Tap again to play.</em>';
+    return `<strong>${esc(cardName(card))}</strong> — ${txt}${tail}`;
+  }
+
+  private reprint() {
+    const next = this.game.cloneNo + 1;
+    store(CLONE_KEY, String(next));
+    this.game = new Game(Date.now() >>> 0, next);
+    this.stage.setGame(this.game);
+    this.selected = null;
+    this.sheet = 'none';
+    this.flush();
+    this.render();
+  }
+
+  // -------------------------------------------------------------- events
+
+  private flush() {
+    const events = this.game.drainEvents();
+    if (events.length) void this.play(events);
+  }
+
+  private async play(events: GameEvent[]) {
+    const paced = events.some((e) => e.type === 'enemyAct');
+    if (paced) {
+      this.busy = true;
+      this.dock.classList.add('busy');
+    }
+    for (const e of events) {
+      if (e.type === 'enemyAct') await sleep(420);
+      this.stage.onEvent(e);
+      this.showEvent(e);
+      if (paced && e.type === 'playerHit') await sleep(140);
+    }
+    if (paced) {
+      await sleep(250);
+      this.busy = false;
+      this.dock.classList.remove('busy');
+      this.render();
+    }
+  }
+
+  private slotOf(uid: number): number | null {
+    const g = this.game;
+    const list = g.combat?.enemies ?? g.corpses;
+    const i = list.findIndex((x) => x.uid === uid);
+    return i < 0 ? null : enemySlot(i, list.length) * 100;
+  }
+
+  private float(text: string, cls: string, x: number, y: number) {
+    const el = document.createElement('div');
+    el.className = `floater ${cls}`;
+    el.textContent = text;
+    el.style.left = `${x}%`;
+    el.style.top = `${y}%`;
+    this.fx.appendChild(el);
+    setTimeout(() => el.remove(), 1200);
+  }
+
+  private showEvent(e: GameEvent) {
+    switch (e.type) {
+      case 'enemyHit': {
+        const x = this.slotOf(e.uid);
+        if (x !== null) {
+          if (e.amount > 0) this.float(`${e.amount}`, 'dmg', x + (Math.random() - 0.5) * 8, 40);
+          if (e.blocked > 0) this.float(`▢${e.blocked}`, 'block', x, 52);
+        }
+        break;
+      }
+      case 'playerHit':
+        if (e.amount > 0) this.float(`−${e.amount}`, 'hurt', 50 + (Math.random() - 0.5) * 20, 62);
+        if (e.blocked > 0) this.float(`▢ ${e.blocked} blocked`, 'block', 50, 72);
+        break;
+      case 'heal': this.float(`+${e.amount} integrity`, 'good', 50, 55); break;
+      case 'biomass': this.float(`+${e.amount} biomass`, 'bio', 50, 45); break;
+      case 'block': this.float(`▢ +${e.amount}`, 'block', 50, 70); break;
+      case 'splice': this.float('SPLICED', 'bio', 50, 30); break;
+      case 'whisper': this.say(e.text); break;
+      case 'line': {
+        const x = this.slotOf(e.uid);
+        const el = document.createElement('div');
+        el.className = 'speech';
+        el.textContent = e.text.toLowerCase();
+        el.style.left = `${x ?? 50}%`;
+        el.style.top = '22%';
+        this.fx.appendChild(el);
+        setTimeout(() => el.remove(), 2700);
+        break;
+      }
+      default: break;
+    }
+  }
+
+  private say(text: string) {
+    if (!text) return;
+    this.whisper.textContent = text;
+    this.whisper.classList.add('on');
+    clearTimeout(this.whisperTimer);
+    this.whisperTimer = window.setTimeout(() => this.whisper.classList.remove('on'), 4200);
+  }
+
+  // ------------------------------------------------------------- render
+
+  private render() {
+    this.renderHud();
+    this.renderOverlay();
+    this.renderDock();
+    this.renderSheet();
+  }
+
+  private renderHud() {
+    const g = this.game;
+    const pct = Math.max(0, (g.hp / g.maxHp) * 100);
+    const extras: string[] = [];
+    if (g.phase === 'combat') {
+      if (g.playerBlock > 0) extras.push(`<span class="stat plate">plate <b>${g.playerBlock}</b></span>`);
+      if (g.playerStatus.weak > 0) extras.push(`<span class="stat bad">weak <b>${g.playerStatus.weak}</b></span>`);
+      if (g.playerStatus.exposed > 0) extras.push(`<span class="stat bad">exposed <b>${g.playerStatus.exposed}</b></span>`);
+    }
+    this.hud.innerHTML = `
+      <div class="clone">#${pad(g.cloneNo)}<small>clone</small></div>
+      <div class="meter">
+        <div class="row"><span class="stat">integrity <b>${g.hp}</b>/${g.maxHp}</span>${extras.join('')}</div>
+        <div class="bar"><div class="fill" style="width:${pct}%"></div></div>
+      </div>
+      <div class="biomass">biomass<b>${g.biomass}</b></div>`;
+    this.track.innerHTML = g.segments
+      .map((s, i) => {
+        const cls = [i < g.pos ? 'done' : '', i === g.pos ? 'here' : '', s.feature === 'enemies' && s.revealed ? 'fight' : '']
+          .filter(Boolean).join(' ');
+        return `<i class="${cls}"></i>`;
+      })
+      .join('');
+  }
+
+  private renderOverlay() {
+    const g = this.game;
+    this.overlay.parentElement!.classList.toggle('fight', g.phase === 'combat' || g.phase === 'harvest');
+    if (g.phase !== 'combat' || !g.combat) {
+      this.overlay.innerHTML = '';
+      return;
+    }
+    const n = g.combat.enemies.length;
+    const sel = g.combat.hand.find((c) => c.uid === this.selected);
+    const targeting = !!sel && needsTarget(sel) && !g.combatPlayable(sel);
+    this.overlay.innerHTML = g.combat.enemies
+      .map((e, i) => this.foeHtml(e, enemySlot(i, n) * 100, 100 / (n + 0.5), targeting))
+      .join('');
+  }
+
+  private foeHtml(e: EnemyState, x: number, width: number, targeting: boolean): string {
+    const g = this.game;
+    const def = ENEMIES[e.defId];
+    const intent = g.intentOf(e);
+    const parts: string[] = [`<b>${intent.label}</b>`];
+    if (intent.attack) {
+      const hits = intent.hits && intent.hits > 1 ? `×${intent.hits}` : '';
+      parts.push(`<span class="atk">${g.intentDamage(e)}${hits}</span>`);
+    }
+    if (intent.block) parts.push(`<span class="blk">▢${intent.block}</span>`);
+    if (intent.strength) parts.push(`<span class="dbf">+${intent.strength} str</span>`);
+    if (intent.weak) parts.push(`<span class="dbf">weaken ${intent.weak}</span>`);
+    if (intent.exposed) parts.push(`<span class="dbf">expose ${intent.exposed}</span>`);
+    const chips: string[] = [`<span>${e.hp}/${e.maxHp}</span>`];
+    if (e.block) chips.push(`<span class="tagchip plate">▢${e.block}</span>`);
+    if (e.status.tagged) chips.push('<span class="tagchip tag">TAGGED</span>');
+    if (e.status.weak) chips.push(`<span class="tagchip weak">WEAK ${e.status.weak}</span>`);
+    if (e.status.exposed) chips.push(`<span class="tagchip exp">EXP ${e.status.exposed}</span>`);
+    if (e.status.strength) chips.push(`<span class="tagchip str">STR ${e.status.strength}</span>`);
+    return `
+      <button class="foe ${e.alive ? '' : 'dead'} ${targeting && e.alive ? 'targetable' : ''}"
+        data-act="foe" data-uid="${e.uid}" style="left:${x}%;width:${width}%"
+        aria-label="${def.name}, ${e.hp} of ${e.maxHp} integrity">
+        <span class="intent">${parts.join(' ')}</span>
+        <span class="name">${def.name}</span>
+        <span class="hp"><span style="width:${(e.hp / e.maxHp) * 100}%"></span></span>
+        <span class="nums">${chips.join('')}</span>
+      </button>`;
+  }
+
+  private cardHtml(card: CardInstance, opts: { big?: boolean; dim?: boolean; act?: string; extra?: string } = {}): string {
+    const def = cardDef(card);
+    const s = cardStats(card);
+    const lvl = cardLevel(card);
+    const cls = [
+      'card', def.deck, lvl > 0 ? 'evolved' : '', opts.big ? 'big' : '',
+      this.selected === card.uid ? 'selected' : '', opts.dim ? 'dim' : '',
+    ].filter(Boolean).join(' ');
+    const genes = lvl > 0 ? `<span class="genes" title="${lvl} genes">${'<i></i>'.repeat(Math.min(lvl, 8))}</span>` : '';
+    const flavor = opts.big ? `<span class="flavor">${esc(def.flavor)}</span>` : '';
+    return `
+      <button class="${cls}" data-act="${opts.act ?? 'card'}" data-uid="${card.uid}" ${opts.extra ?? ''}>
+        <span class="cost" aria-label="cost">${s.cost}</span>
+        <span class="glyph" aria-hidden="true">${def.glyph}</span>
+        <span class="name">${esc(cardName(card))}</span>
+        <span class="text">${cardText(card).join(' ')}</span>
+        ${flavor}
+        ${genes}
+        <span class="kind">${def.deck === 'combat' ? 'tactic' : 'survey'}</span>
+      </button>`;
+  }
+
+  private renderDock() {
+    const g = this.game;
+    let hand = '';
+    let bar = '';
+    if (g.phase === 'explore') {
+      hand = g.sHand.length
+        ? g.sHand.map((c) => this.cardHtml(c, { dim: !!g.surveyPlayable(c) })).join('')
+        : '<p class="empty">no survey cards in hand</p>';
+      const blocked = g.blocker();
+      const pips = Array.from({ length: MAX_OXYGEN }, (_, i) => `<i class="${i < g.oxygen ? 'on' : ''}"></i>`).join('');
+      bar = `
+        <div class="pips o2" aria-label="${g.oxygen} oxygen">${pips}<span>o₂</span></div>
+        <button class="btn small" data-act="decks">decks</button>
+        <span class="spacer"></span>
+        ${g.canUsePod() ? '<button class="btn cryo" data-act="pod">splice</button>' : ''}
+        ${blocked
+          ? `<button class="btn primary danger" data-act="force">force −${FORCE_COST}</button>`
+          : '<button class="btn primary" data-act="advance">advance ▲</button>'}`;
+    } else if (g.phase === 'combat' && g.combat) {
+      const c = g.combat;
+      hand = c.hand.length
+        ? c.hand.map((card) => this.cardHtml(card, { dim: !!g.combatPlayable(card) })).join('')
+        : '<p class="empty">hand empty</p>';
+      const pips = Array.from({ length: Math.max(MAX_ENERGY, c.energy) }, (_, i) => `<i class="${i < c.energy ? 'on' : ''}"></i>`).join('');
+      bar = `
+        <div class="pips" aria-label="${c.energy} energy">${pips}<span>energy</span></div>
+        <div class="piles">draw ${c.draw.length}<br />used ${c.discard.length}</div>
+        <span class="spacer"></span>
+        <button class="btn primary" data-act="end">end turn</button>`;
+    } else {
+      hand = '<p class="empty">—</p>';
+    }
+    this.dock.innerHTML = `
+      <p class="hint">${g.message || '&nbsp;'}</p>
+      <div class="hand">${hand}</div>
+      <div class="bar">${bar}</div>`;
+  }
+
+  // -------------------------------------------------------------- sheets
+
+  private renderSheet() {
+    const g = this.game;
+    let html = '';
+    let full = false;
+    if (g.phase === 'dead') {
+      full = true;
+      html = `
+        <div class="eyebrow">signal lost · section ${g.pos + 1} of ${g.segments.length}</div>
+        <h2>integrity lost</h2>
+        <p>Clone #${pad(g.cloneNo)} stops. Somewhere behind you, the printer hums and warms.
+        The next one will remember a little of this. Not enough.</p>
+        <div class="actions"><button class="btn primary" data-act="reprint">print #${pad(g.cloneNo + 1)}</button></div>`;
+    } else if (g.phase === 'won') {
+      full = true;
+      html = `
+        <div class="eyebrow">sector cleared · clone #${pad(g.cloneNo)}</div>
+        <h2>the signal is closer</h2>
+        <p>The Choir is quiet. Beyond the last hatch, a window, and stars that were never on any chart.
+        The signal pulses once, like a heartbeat. It knows your name. Both of them.</p>
+        <p><em>End of the vertical slice. Integrity ${g.hp}/${g.maxHp}, ${g.combatDeck.length + g.surveyDeck.length} cards,
+        ${[...g.combatDeck, ...g.surveyDeck].reduce((n, c) => n + c.genes.length, 0)} genes spliced.</em></p>
+        <div class="actions"><button class="btn primary" data-act="reprint">print again</button></div>`;
+    } else if (this.sheet === 'intro') {
+      full = true;
+      html = `
+        <div class="eyebrow">print complete · clone #${pad(g.cloneNo)}</div>
+        <h2>reprint</h2>
+        <p>You wake in a vat on a ship that should be empty. You are a copy of someone who died out here.
+        So were the others. Walk the corridor. Find the signal.</p>
+        <ul class="rules">
+          <li><b class="s">survey</b>Blue cards cost oxygen. They open hatches, cut wreckage, light the dark and pry lockers.</li>
+          <li><b class="c">tactics</b>Amber cards cost energy. Read what each enemy intends, then strike first.</li>
+          <li><b class="b">biomass</b>Nothing heals you but what you kill. Eat it to mend, or render it to splice genes into your cards at a pod.</li>
+        </ul>
+        <div class="actions"><button class="btn primary" data-act="wake">wake up</button></div>`;
+    } else if (this.sheet === 'decks') {
+      html = `
+        <h2>your decks</h2>
+        <div class="decklist">
+          <h3>tactics · ${g.combatDeck.length}</h3>
+          <div class="grid">${g.combatDeck.map((c) => this.cardHtml(c, { act: 'none' })).join('')}</div>
+          <h3>survey · ${g.surveyDeck.length}</h3>
+          <div class="grid">${g.surveyDeck.map((c) => this.cardHtml(c, { act: 'none' })).join('')}</div>
+        </div>
+        <div class="actions"><button class="btn small" data-act="how">how to play</button><button class="btn primary" data-act="close">close</button></div>`;
+    } else if (g.phase === 'harvest') {
+      html = this.harvestHtml();
+    } else if (g.phase === 'reward' || g.phase === 'loot') {
+      html = this.offerHtml();
+    } else if (g.phase === 'splice') {
+      html = this.spliceHtml();
+    }
+    this.sheetEl.hidden = !html;
+    this.sheetEl.classList.toggle('full', full);
+    this.sheetEl.innerHTML = html;
+  }
+
+  private harvestHtml(): string {
+    const g = this.game;
+    const rows = g.corpses.map((k) => {
+      const def = ENEMIES[k.defId];
+      const y = g.corpseYield(k);
+      return `
+        <div class="corpse ${k.taken ? 'taken' : ''}">
+          <div><b>${def.name}</b><small>${k.biomass} biomass${k.tagged ? ' · <span class="tag">tagged ×2</span>' : ''}</small></div>
+          <button class="btn small cryo" data-act="eat" data-uid="${k.uid}" ${k.taken ? 'disabled' : ''}>eat<span>+${y} integrity</span></button>
+          <button class="btn small" data-act="render" data-uid="${k.uid}" ${k.taken ? 'disabled' : ''}>render<span>+${y} biomass</span></button>
+        </div>`;
+    });
+    const left = g.corpses.some((k) => !k.taken);
+    return `
+      <div class="eyebrow">quiet again · integrity ${g.hp}/${g.maxHp} · biomass ${g.biomass}</div>
+      <h2>harvest</h2>
+      <p>Eat to mend. Render to splice. Tagged prey yields double.</p>
+      <div class="corpses">${rows.join('')}</div>
+      <div class="actions"><button class="btn primary" data-act="harvest-done">${left ? 'leave the rest' : 'move on'}</button></div>`;
+  }
+
+  private offerHtml(): string {
+    const g = this.game;
+    const loot = g.phase === 'loot';
+    const cards = g.offers.map((o, i) => {
+      const fake: CardInstance = { uid: -1 - i, defId: o.defId, genes: [] };
+      return this.cardHtml(fake, { big: true, act: 'offer', extra: `data-i="${i}"` });
+    });
+    return `
+      <div class="eyebrow">${loot ? 'supply locker' : 'something in the remains'}</div>
+      <h2>${loot ? 'take one' : 'new tactic'}</h2>
+      <p>${loot ? 'Rations long gone. Tools remain.' : 'Its body remembers how it fought. Learn one move.'} Tap a card to add it to your deck.</p>
+      <div class="offers">${cards.join('')}</div>
+      <div class="actions"><button class="btn" data-act="skip">take nothing</button></div>`;
+  }
+
+  private spliceHtml(): string {
+    const g = this.game;
+    const deck = this.spliceTab === 'combat' ? g.combatDeck : g.surveyDeck;
+    const grid = deck.map((c) => {
+      const html = this.cardHtml(c, { act: 'splice-card' });
+      return this.spliceSel === c.uid ? html.replace('class="card', 'class="card selected') : html;
+    });
+    let genebox = '<p><em>Tap a card below to see which genes will bond with it.</em></p>';
+    const card = this.spliceSel !== null ? g.findCard(this.spliceSel) : undefined;
+    if (card) {
+      const offers = g.offersFor(card.uid);
+      const rows = offers.map((id) => {
+        const gene = GENES[id];
+        const cost = spliceCost(card, id);
+        const after = splice(card, id);
+        return `
+          <button class="gene" data-act="gene" data-gene="${id}" ${cost > g.biomass ? 'disabled' : ''}>
+            <b>${gene.name} · ${gene.text}</b><span class="price">${cost}</span>
+            <small>becomes <em>${esc(cardName(after))}</em>: ${cardText(after).join(' ')}</small>
+          </button>`;
+      });
+      genebox = `
+        <div class="genebox">
+          <h3>${esc(cardName(card))} · level ${cardLevel(card)}</h3>
+          ${rows.length ? rows.join('') : '<p>No gene will bond with this card.</p>'}
+        </div>`;
+    }
+    return `
+      <div class="eyebrow">splice pod · <span class="bioline">${g.biomass} biomass</span></div>
+      <h2>evolve</h2>
+      <p>Each gene rewrites a card for the rest of the run. Genes stack without limit, but each costs more than the last.</p>
+      <div class="tabs">
+        <button class="btn small" data-act="tab" data-deck="combat" aria-pressed="${this.spliceTab === 'combat'}">tactics</button>
+        <button class="btn small" data-act="tab" data-deck="survey" aria-pressed="${this.spliceTab === 'survey'}">survey</button>
+      </div>
+      ${genebox}
+      <div class="grid">${grid.join('')}</div>
+      <div class="actions"><button class="btn primary" data-act="leave-pod">leave pod</button></div>`;
+  }
+}
