@@ -875,7 +875,7 @@ describe('imprint cards', () => {
     g.playCombat(cards[0].uid, foe.uid);
     expect(g.pickCard(cards[1].uid)).toBe(true);
     expect(g.combatDeck.some((d) => d.uid === cards[1].uid)).toBe(false);
-    expect(cards[0].imprint).toEqual({ damage: 5, block: 2 });
+    expect(cards[0].imprint).toEqual({ damage: 5, block: 2, tag: 1 });
   });
 
   it('Mutagen Flask splices a gene, sometimes a defect, and is Consumed', () => {
@@ -935,5 +935,25 @@ describe('imprint cards', () => {
     const r = Game.load(g.serialize())!;
     r.playCombat(cards[0].uid, r.combat!.enemies[0].uid);
     expect(r.combatDeck.find((d) => d.uid === cards[0].uid)!.imprint?.damage).toBe(2);
+  });
+});
+
+describe('copying reads the printed card', () => {
+  it('Cannibal takes the numbers printed right now, fight bonuses included', () => {
+    const g = new Game(5);
+    const can: CardInstance = { uid: 9300, defId: 'cannibal', genes: [] };
+    const hook: CardInstance = { uid: 9301, defId: 'hook', genes: ['serrated'], imprint: { damage: 1 } };
+    g.combatDeck.push(can, hook);
+    fightIn(g, ['crawler'], null);
+    const c = g.combat!;
+    c.hand = [can, hook];
+    c.energy = 3;
+    c.buffs.set(hook.uid, 4);
+    c.enemies[0].hp = 999;
+    // printed on Salvage Hook now: 5 base +3 gene +1 imprint +4 empower = 13 damage, plate 2, tag 1
+    expect(g.displayStats(hook).damage).toBe(13);
+    g.playCombat(can.uid, c.enemies[0].uid);
+    g.pickCard(hook.uid);
+    expect(can.imprint).toEqual({ damage: 13, block: 2, tag: 1 });
   });
 });

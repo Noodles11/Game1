@@ -464,7 +464,7 @@ export class Game {
 
   /** Field Notes: each hidden thing found teaches a random tactic +1 damage. */
   private fieldNotes(found: number) {
-    const fighters = this.combatDeck.filter((c) => cardStats(c).damage > 0);
+    const fighters = this.combatDeck.filter((c) => this.displayStats(c).damage > 0);
     for (let i = 0; i < found && fighters.length; i++) this.imprint(this.rng.pick(fighters), 'damage', 1);
     this.message = found
       ? `You write down ${found} thing${found > 1 ? 's' : ''} you should not have seen. Your tactics read it.`
@@ -905,7 +905,10 @@ export class Game {
     return (this.combat?.buffs.get(card.uid) ?? 0) + (this.combat?.held.get(card.uid) ?? 0);
   }
 
-  /** Stats for display: base stats plus any Empower bonus, so the UI shows the true numbers. */
+  /**
+   * What is printed on the card right now: permanent stats plus this fight's bonuses (Empower, Unscarred).
+   * Anything that reads or copies a card's numbers uses this.
+   */
   displayStats(card: CardInstance): CardStats {
     const s = cardStats(card);
     const bonus = this.combatBonus(card);
@@ -1119,7 +1122,7 @@ export class Game {
     if (!target || !source || target === source) return false;
     c.pendingPick = null;
     if (p.kind === 'donor') {
-      const stat: ImprintStat = cardStats(target).damage > 0 ? 'damage' : 'block';
+      const stat: ImprintStat = this.displayStats(target).damage > 0 ? 'damage' : 'block';
       this.imprint(target, stat, 2 * p.times);
       const doses = (source.mem?.doses ?? 0) + 1;
       source.mem = { ...source.mem, doses };
@@ -1128,10 +1131,12 @@ export class Game {
       for (let i = 0; i < p.times; i++) this.mutate(target);
       this.consumeCard(source);
     } else {
-      const v = cardStats(target);
+      // take exactly what is printed on it right now, fight bonuses included
+      const v = this.displayStats(target);
       this.consumeCard(target);
       if (v.damage > 0) this.imprint(source, 'damage', v.damage);
       if (v.block > 0) this.imprint(source, 'block', v.block);
+      if (v.tag > 0) this.imprint(source, 'tag', v.tag);
     }
     return true;
   }
@@ -1142,7 +1147,7 @@ export class Game {
 
   /** Unstable: a free random gene, and one time in three a defect. */
   private mutate(card: CardInstance) {
-    const { good, bad } = mutationsFor(card);
+    const { good, bad } = mutationsFor(card, this.displayStats(card));
     const pool = bad.length && this.rng.next() < 1 / 3 ? bad : good.length ? good : bad;
     if (!pool.length) return;
     const gene = this.rng.pick(pool);
@@ -1280,7 +1285,7 @@ export class Game {
           const others = this.combatDeck.filter((o) => o.uid !== card.uid);
           if (others.length) {
             const o = this.rng.pick(others);
-            this.imprint(o, cardStats(o).damage > 0 ? 'damage' : 'block', 1);
+            this.imprint(o, this.displayStats(o).damage > 0 ? 'damage' : 'block', 1);
           }
         }
       }

@@ -25,7 +25,7 @@ Genes are bought at pods; Imprints are earned in play. Both stack.
 | Callus | 1 | Plate 4. | Each hit its plating fully stops: +1 plating. |
 | Donor Cell | 0 | Choose a card in hand. | It gains +2 damage (or plating). Three doses, then Donor is Consumed. |
 | Sibling Print | 1 | Sibling. Deal 4. | Shares every Imprint across copies. |
-| Cannibal Print | 1 | Deal 2, then Consume a card in hand. | Gains that card's damage and plating. |
+| Cannibal Print | 1 | Deal 2, then Consume a card in hand. | Gains exactly what is printed on it now: damage, plating, tag (fight bonuses included). |
 | Mutagen Flask | 1 | Unstable. Choose a card in hand. | Free random gene, 1 in 3 a defect. Flask is Consumed. |
 | Hunger Clock | 2 | Deal 11. | Each kill +3. A won fight where it wasn't played −2. |
 | Grief Engine | 1 | Plate 3. Draw 1. | Each Consume anywhere: +1 plating. |
@@ -46,3 +46,9 @@ Genes are bought at pods; Imprints are earned in play. Both stack.
 
 Autoplay bot, 120 runs: 47 clear Kessra (48 before), 52 die in the lab, 21 in Kessra.
 Largest single Imprint seen: +38 damage.
+
+## Rule: copying reads the printed card
+
+Anything that reads or copies a card's numbers (Cannibal, Donor's damage-or-plating choice, Scar Tissue,
+Field Notes, Mutagen Flask's gene fit) takes exactly what is printed on it at that moment:
+base + genes + Imprints + this fight's bonuses (Empower, Unscarred Edge).

@@ -141,8 +141,8 @@ export const CARDS: Record<string, CardDef> = {
   cannibal: {
     id: 'cannibal', name: 'Cannibal Print', deck: 'combat', glyph: '⊘',
     base: { cost: 1, damage: 2 }, keywords: ['consume'],
-    rules: ['Then Consume another card in hand: Imprint its damage and plating onto this.'],
-    brief: 'Then eat a card in hand.',
+    rules: ['Then Consume another card in hand: Imprint exactly what is printed on it now (damage, plating, tag) onto this.'],
+    brief: 'Then eat a card: take its printed numbers.',
     flavor: 'The failed prints have to go somewhere. This is where.',
   },
   flask: {
@@ -378,9 +378,9 @@ export function genesFor(card: CardInstance): Gene[] {
 }
 
 /** Genes an Unstable mutation can land: good ones and defects, both filtered to fit the card. */
-export function mutationsFor(card: CardInstance): { good: Gene[]; bad: Gene[] } {
+export function mutationsFor(card: CardInstance, printed?: CardStats): { good: Gene[]; bad: Gene[] } {
   const def = cardDef(card);
-  const s = cardStats(card);
+  const s = printed ?? cardStats(card);
   const fits = (g: Gene) => (g.deck === 'any' || g.deck === def.deck) && g.canApply(s, def);
   const all = Object.values(GENES).filter(fits);
   return { good: all.filter((g) => !g.defect), bad: all.filter((g) => g.defect) };
