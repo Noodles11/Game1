@@ -443,7 +443,7 @@ export class App {
       <div class="clone">#${pad(g.cloneNo)}<small>clone</small></div>
       <div class="meter">
         <div class="row"><span class="stat" data-hint="integrity">integrity <b>${g.hp}</b>/${g.maxHp}</span>${extras.join('')}</div>
-        <div class="bar"><div class="fill" style="width:${pct}%"></div></div>
+        <div class="bar"><div class="fill" style="width:${pct}%"></div><div class="ticks" style="--seg:${Math.max(2, (10 / g.maxHp) * 100)}%"></div></div>
       </div>
       <div class="biomass" data-hint="biomass">biomass<b>${g.biomass}</b></div>`;
     const mods: string[] = [];
@@ -572,7 +572,7 @@ export class App {
     if (intent.exposed) parts.push(`<span class="dbf" data-hint="exposed">expose ${intent.exposed}</span>`);
     if (intent.allyStrength) parts.push(`<span class="dbf" data-hint="allies">+${intent.allyStrength} str allies</span>`);
     if (intent.summon) parts.push('<span class="dbf" data-hint="summon">summon</span>');
-    const chips: string[] = [`<span>${e.hp}/${e.maxHp}</span>`];
+    const chips: string[] = [];
     if (def.reflect) chips.push(`<span class="tagchip reflect ${e.block ? '' : 'off'}" data-hint="reflect">REFLECT</span>`);
     if (def.splits && !e.split) chips.push('<span class="tagchip splits" data-hint="splits">SPLITS</span>');
     if (e.block) chips.push(`<span class="tagchip plate" data-hint="plate">▢${e.block}</span>`);
@@ -585,9 +585,11 @@ export class App {
         data-act="foe" data-uid="${e.uid}" style="left:${x}%;width:${width}%"
         aria-label="${def.name}, ${e.hp} of ${e.maxHp} integrity">
         <span class="intent">${parts.join(' ')}</span>
-        <span class="name">${def.name}</span>
-        <span class="hp"><span style="width:${(e.hp / e.maxHp) * 100}%"></span></span>
-        <span class="nums">${chips.join('')}</span>
+        <span class="tagplate">
+          <span class="name">${def.name}</span>
+          <span class="hp"><span style="width:${(e.hp / e.maxHp) * 100}%"></span><em>${e.hp}/${e.maxHp}</em></span>
+          ${chips.length ? `<span class="nums">${chips.join('')}</span>` : ''}
+        </span>
       </button>`;
   }
 

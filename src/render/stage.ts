@@ -119,6 +119,9 @@ export class Stage {
 
   /** The scene is painted here, then printed onto the visible canvas. */
   private buf = document.createElement('canvas');
+  /** Scratch canvases for outlining objects: the object alone, and its silhouette. */
+  private layer = document.createElement('canvas');
+  private sil = document.createElement('canvas');
   private print: Print | null;
   private plain: CanvasRenderingContext2D | null = null;
 
@@ -396,6 +399,57 @@ export class Stage {
     this.drawOverlays(inFight);
     if (this.print) this.print.render(this.buf, this.dpr, this.time);
     else this.plain?.drawImage(this.buf, 0, 0);
+  }
+
+  /**
+   * Draw something with a sticker outline: an ink rim, then a coloured rim, then the thing itself.
+   * (x, y, w, h) is a box in CSS pixels that must contain the drawing.
+   */
+  private outlined(x: number, y: number, w: number, h: number, color: string, alpha: number, draw: () => void) {
+    const d = this.dpr;
+    const pad = 6;
+    const pw = Math.ceil((w + pad * 2) * d);
+    const ph = Math.ceil((h + pad * 2) * d);
+    if (alpha <= 0.02 || w <= 0 || h <= 0 || pw * ph > 6e6) {
+      draw();
+      return;
+    }
+    for (const c of [this.layer, this.sil]) {
+      if (c.width < pw) c.width = pw;
+      if (c.height < ph) c.height = ph;
+    }
+    const lc = this.layer.getContext('2d')!;
+    const sc = this.sil.getContext('2d')!;
+    lc.setTransform(1, 0, 0, 1, 0, 0);
+    lc.clearRect(0, 0, pw, ph);
+    lc.setTransform(d, 0, 0, d, (pad - x) * d, (pad - y) * d);
+    const main = this.ctx;
+    this.ctx = lc;
+    try {
+      draw();
+    } finally {
+      this.ctx = main;
+    }
+    const rim = (r: number, col: string) => {
+      sc.setTransform(1, 0, 0, 1, 0, 0);
+      sc.globalCompositeOperation = 'source-over';
+      sc.clearRect(0, 0, pw, ph);
+      for (let k = 0; k < 12; k++) {
+        const a = (k / 12) * Math.PI * 2;
+        sc.drawImage(this.layer, 0, 0, pw, ph, Math.cos(a) * r * d, Math.sin(a) * r * d, pw, ph);
+      }
+      sc.globalCompositeOperation = 'source-in';
+      sc.fillStyle = col;
+      sc.fillRect(0, 0, pw, ph);
+      sc.globalCompositeOperation = 'source-over';
+      main.drawImage(this.sil, 0, 0, pw, ph, x - pad, y - pad, pw / d, ph / d);
+    };
+    const prev = main.globalAlpha;
+    main.globalAlpha = prev * alpha;
+    rim(4.5, INK.void);
+    rim(2.5, color);
+    main.globalAlpha = prev;
+    main.drawImage(this.layer, 0, 0, pw, ph, x - pad, y - pad, pw / d, ph / d);
   }
 
   /** A translucent sheet of haze over the whole view. */
@@ -1270,9 +1324,21 @@ export class Stage {
     const u = this.unit(zMid);
     const fy = this.floorY(zMid);
     const dim = this.fog(zMid);
+    // things you can use or fight get a highlight rim, fading with distance
+    const rim = 1 - dim * 0.7;
+    const box = (x: number, w: number, h: number, draw: () => void, color: string, on = true) =>
+      on ? this.outlined(x - w / 2, fy - h, w, h + u * 0.12, color, rim, draw) : draw();
     switch (seg.feature) {
-      case 'crate': this.drawCrate(this.cx + u * 0.42, fy, u, seg.cleared, dim, i); break;
-      case 'pod': this.drawPod(this.cx - u * 0.35, fy, u, seg.cleared, dim, i); break;
+      case 'crate': {
+        const x = this.cx + u * 0.42;
+        box(x, u * 1.1, u * 1.1, () => this.drawCrate(x, fy, u, seg.cleared, dim, i), INK.sodium, !seg.cleared);
+        break;
+      }
+      case 'pod': {
+        const x = this.cx - u * 0.35;
+        box(x, u * 1.1, u * 1.7, () => this.drawPod(x, fy, u, seg.cleared, dim, i), INK.cryo, !seg.cleared);
+        break;
+      }
       case 'enemies': {
         const inFightHere = i === g.pos && (g.phase === 'combat' || g.phase === 'harvest');
         if (seg.cleared || inFightHere) {
@@ -1282,13 +1348,16 @@ export class Stage {
         const list = seg.encounter ?? [];
         list.forEach((id, k) => {
           const x = this.cx + (enemySlot(k, list.length) - 0.5) * u * 1.4;
-          drawCreature(this.ctx, id, x, fy, u * 0.8, {
+          const sz = (CREATURE_SIZE[id] ?? 1) * u * 0.8;
+          box(x, sz * 2.4, sz * 1.9, () => drawCreature(this.ctx, id, x, fy, u * 0.8, {
             t: this.time, boil: this.boil, flash: 0, lunge: 0, dead: 0, seed: k + i, dim: Math.min(0.9, dim + 0.25),
-          });
+          }), INK.flesh);
         });
         break;
       }
-      case 'event': this.drawMonolith(this.cx, fy, u, seg.cleared, dim, i); break;
+      case 'event':
+        box(this.cx, u * 1.2, u * 1.6, () => this.drawMonolith(this.cx, fy, u, seg.cleared, dim, i), INK.signal, !seg.cleared);
+        break;
       default: break;
     }
     void zn;
@@ -1580,9 +1649,13 @@ export class Stage {
         this.drawRemains(x, this.H * 0.94, u, i);
         return;
       }
-      drawCreature(ctx, e.defId, x, this.H * 0.94, u, {
-        t: this.time + i * 1.3, boil: this.boil, flash: fx.flash, lunge: fx.lunge, dead: fx.dead, seed: i + 1, dim: 0,
-      });
+      const foot = this.H * 0.94;
+      const bw = u * size * 2.6;
+      const bh = u * size * 2.1;
+      this.outlined(x - bw / 2, foot - bh, bw, bh + u * 0.15, '#fbf8f2', 1, () =>
+        drawCreature(this.ctx, e.defId, x, foot, u, {
+          t: this.time + i * 1.3, boil: this.boil, flash: fx.flash, lunge: fx.lunge, dead: fx.dead, seed: i + 1, dim: 0,
+        }));
     });
     // enemies removed before their burst played (a splitter makes room for its halves): burst now
     for (const [uid, fx] of this.enemyFx) {

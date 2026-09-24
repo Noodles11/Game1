@@ -1868,3 +1868,242 @@ body {
   max-height: none;
   min-height: 150px;
 }
+
+/* ------------------------------------------------------- HUD & labels
+   Everything that floats over the scene sits on its own ink plate with a paper rim,
+   a hard print shadow and a soft drop shadow, so it reads over busy halftone. */
+
+.hud .meter .row {
+  align-items: baseline;
+}
+
+.hud .stat[data-hint='integrity'] b {
+  font-family: var(--display);
+  font-size: 20px;
+  color: var(--paper);
+  letter-spacing: 0.02em;
+}
+
+.meter .bar {
+  height: 14px;
+  background: var(--flesh-dark);
+  border: 2px solid var(--paper);
+  box-shadow: 3px 3px 0 var(--flesh), 0 4px 10px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.meter .fill {
+  background:
+    repeating-linear-gradient(-45deg, rgba(19, 17, 19, 0.18) 0 3px, transparent 3px 6px),
+    var(--flesh);
+}
+
+.meter .ticks {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 calc(var(--seg) - 2px), var(--ink) calc(var(--seg) - 2px) var(--seg));
+  pointer-events: none;
+}
+
+.hud .stat.plate,
+.hud .stat.bad {
+  padding: 1px 6px;
+  border: 1.5px solid var(--ink);
+  color: var(--ink);
+  font-weight: 700;
+  box-shadow: 2px 2px 0 var(--paper);
+}
+
+.hud .stat.plate {
+  background: var(--cryo);
+}
+
+.hud .stat.bad {
+  background: var(--sodium);
+}
+
+.hud .stat.plate b,
+.hud .stat.bad b {
+  color: var(--ink);
+}
+
+.sectorline {
+  font-weight: 700;
+  color: var(--paper);
+}
+
+.sectorline .mod {
+  background: var(--paper);
+  color: var(--ink);
+  padding: 0 5px;
+  box-shadow: 2px 2px 0 var(--flesh);
+}
+
+/* enemy plate */
+.foe {
+  gap: 6px;
+}
+
+.foe .tagplate {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+  min-width: 96px;
+  padding: 3px 7px 5px;
+  background: var(--ink);
+  border: 2px solid var(--paper);
+  box-shadow: 3px 3px 0 var(--flesh), 0 6px 14px rgba(0, 0, 0, 0.75);
+}
+
+.foe .name {
+  font-family: var(--display);
+  font-size: 16px;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  color: var(--paper);
+  text-shadow: none;
+}
+
+.foe .hp {
+  width: min(96px, 24vw);
+  height: 13px;
+  background: var(--flesh-dark);
+  border: 1.5px solid var(--paper);
+}
+
+.foe .hp span {
+  background:
+    repeating-linear-gradient(-45deg, rgba(19, 17, 19, 0.2) 0 3px, transparent 3px 6px),
+    var(--flesh);
+}
+
+.foe .hp em {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 9.5px;
+  line-height: 1;
+  color: var(--paper);
+  text-shadow: 1px 1px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink);
+}
+
+.foe .nums {
+  gap: 3px;
+  text-shadow: none;
+}
+
+.tagchip {
+  padding: 1px 4px;
+  border: 1.5px solid var(--ink);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 8.5px;
+  text-shadow: none;
+  box-shadow: 1.5px 1.5px 0 var(--paper);
+}
+
+.tagchip.tag { background: var(--flesh); color: var(--paper); }
+.tagchip.weak, .tagchip.exp, .tagchip.str { background: var(--sodium); color: var(--ink); }
+.tagchip.plate, .tagchip.reflect { background: var(--cryo); color: var(--ink); }
+.tagchip.splits { background: var(--cobalt); color: var(--paper); }
+.tagchip.off { opacity: 0.45; }
+
+/* intent: a paper slip */
+.intent {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 3px 8px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  box-shadow: 3px 3px 0 var(--ink), 0 6px 14px rgba(0, 0, 0, 0.7);
+}
+
+.intent b {
+  color: #5d534a;
+  font-weight: 700;
+}
+
+.intent .atk {
+  color: var(--flesh);
+  font-weight: 700;
+  font-size: 15px;
+  text-shadow: none;
+}
+
+.intent .blk {
+  color: #137a72;
+  font-weight: 700;
+  text-shadow: none;
+}
+
+.intent .dbf {
+  color: var(--signal);
+  font-weight: 700;
+  text-shadow: none;
+}
+
+.foe.targetable::after {
+  border: 2px dashed var(--sodium);
+  border-radius: 4px;
+}
+
+/* floating text and lines get an ink outline */
+.floater {
+  font-family: var(--display);
+  font-size: 30px;
+  letter-spacing: 0.04em;
+  text-shadow: 2px 2px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink), 0 4px 10px rgba(0, 0, 0, 0.8);
+}
+
+.floater.hurt { font-size: 36px; }
+
+.whisper {
+  text-shadow: 1px 1px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink), 0 2px 10px #000;
+}
+
+.speech {
+  padding: 4px 8px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--flesh);
+  font-size: 15px;
+  text-shadow: none;
+}
+
+.passage .plabel,
+.passage .pdir {
+  text-shadow: 1px 1px 0 var(--ink), -1px -1px 0 var(--ink), 0 2px 8px #000;
+}
+
+.foe .tagplate {
+  min-width: 0;
+  max-width: calc(100% - 6px);
+}
+
+.foe .name {
+  text-wrap: balance;
+}
+
+.foe .hp {
+  width: min(96px, 22vw);
+}
+
+.intent {
+  max-width: calc(100% - 6px);
+  white-space: normal;
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 0;
+}
+
+.overlay.crowd .foe .name {
+  font-size: 13px;
+}
