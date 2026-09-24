@@ -2372,3 +2372,36 @@ body {
   border-style: dashed;
   opacity: 0.95;
 }
+
+/* elite mutations at the pod */
+.gene.elite {
+  position: relative;
+  border: 2px solid var(--signal);
+  background:
+    repeating-linear-gradient(-45deg, rgba(122, 76, 184, 0.14) 0 6px, transparent 6px 12px),
+    var(--hull);
+  box-shadow: 3px 3px 0 var(--signal), 0 0 14px rgba(122, 76, 184, 0.45);
+}
+
+.gene.elite b {
+  color: var(--paper);
+}
+
+.elitetag {
+  display: inline-block;
+  margin-bottom: 3px;
+  padding: 0 5px;
+  font-family: var(--mono);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--signal);
+  color: var(--paper);
+}
+
+.gene small.drawback {
+  color: #ff6a55;
+  font-weight: 700;
+}

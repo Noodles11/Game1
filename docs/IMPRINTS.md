@@ -74,3 +74,22 @@ this fight prints a **fleeting** Clot Patch into your hand (dashed frame; never 
 Sources: **Triage Tag** (1: Deal 3, Tag 1, Triage 1) and the **Triage** gene (+1 Triage, fits any card that tags).
 Stacks: two Triage plays print two patches per tagged death.
 Clot Patch, Poultice and Field Dressing are listed twice in reward pools, so they turn up often; offers never repeat a card.
+
+## Splice prices and elite mutations
+
+Splice price = gene price × 1.5 + 3 per gene already on the card (was ×1 + 2).
+
+About 3 cards in 10 at a pod also get an **elite mutation** offer: strong, pricey, and always with a drawback.
+
+| Elite gene | Effect | Drawback | Price |
+|---|---|---|---|
+| Mirror Neurons | While in hand: each hit by another card, +1 damage this fight | +1 cost | 21 |
+| Bloodlust | While in hand: each enemy death, +3 damage this fight | −5 max integrity when spliced | 18 |
+| Pain Engine | While in hand: each time you lose integrity, +2 damage this fight | costs 1 biomass to play | 18 |
+| Hive Shell | While in hand: each other card played, +1 plating this fight | +1 cost | 18 |
+| Parasite | Heal 1 per hit that lands | −2 damage | 20 |
+| Glass Marrow | +7 damage | lose 2 integrity per play (through plating) | 15 |
+
+Elite genes never come from Mutagen Flask. Stacking the same elite gene stacks its effect.
+
+Bot sim after this change and single-use medic cards: 31/120 clear Kessra (was 47).

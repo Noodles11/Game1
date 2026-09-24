@@ -1,6 +1,6 @@
 import {
   REWARD_COMBAT, REWARD_SURVEY, SECRET_CARDS, STARTER_COMBAT, STARTER_SURVEY,
-  CARDS, addImprint, cardDef, isMedic, cardStats, genesFor, mutationsFor, needsTarget, splice, spliceCost,
+  CARDS, GENES, addImprint, cardDef, eliteGenesFor, isMedic, cardStats, genesFor, mutationsFor, needsTarget, splice, spliceCost,
 } from './cards';
 import { ENEMIES } from './enemies';
 import { Rng } from './rng';
@@ -77,6 +77,8 @@ export interface CombatState {
   /** Every card uid played this fight. */
   played: number[];
   pendingPick: PendingPick | null;
+  /** Extra plating on a card (by uid) for the rest of this fight (Hive Shell). */
+  plateBuffs?: Map<number, number>;
   /** Clot Patches printed per tagged death, this fight (Triage). */
   triage?: number;
   /** Every enemy is dead, but a card's effect still waits on the player. The fight ends once it resolves. */
@@ -927,8 +929,12 @@ export class Game {
     if (!card) return [];
     const cached = this.spliceOffers.get(uid);
     const valid = new Set(genesFor(card).map((g) => g.id));
-    if (cached && cached.every((g) => valid.has(g))) return cached;
+    const eliteOk = new Set(eliteGenesFor(card).map((g) => g.id));
+    if (cached && cached.every((g) => valid.has(g) || eliteOk.has(g))) return cached;
     const picks = this.rng.sample([...valid], 3);
+    // sometimes the pod offers something it should not
+    const elite = eliteGenesFor(card);
+    if (elite.length && this.rng.next() < 0.3) picks.push(this.rng.pick(elite).id);
     this.spliceOffers.set(uid, picks);
     return picks;
   }
@@ -944,6 +950,11 @@ export class Game {
     }
     card.genes = splice(card, geneId).genes;
     this.biomass -= cost;
+    const price = GENES[geneId].maxHpCost ?? 0;
+    if (price) {
+      this.maxHp = Math.max(1, this.maxHp - price);
+      this.hp = Math.min(this.hp, this.maxHp);
+    }
     this.spliceOffers.delete(uid);
     this.emit({ type: 'splice', uid });
     return true;
@@ -1096,7 +1107,8 @@ export class Game {
   displayStats(card: CardInstance): CardStats {
     const s = cardStats(card);
     const bonus = this.combatBonus(card);
-    return bonus > 0 ? { ...s, damage: s.damage + bonus } : s;
+    const plate = this.combat?.plateBuffs?.get(card.uid) ?? 0;
+    return bonus || plate ? { ...s, damage: s.damage + (s.damage > 0 ? bonus : 0), block: s.block + plate } : s;
   }
 
   /** Resolve a pending Empower by picking the card in hand that gains the bonus. */
@@ -1164,6 +1176,15 @@ export class Game {
       if (this.isDead || this.livingEnemies().length === 0) break;
     }
     if (this.isDead) return true;
+    for (const h of this.handWith('hiveshell')) {
+      const copies = h.genes.filter((g) => g === 'hiveshell').length;
+      c.plateBuffs = c.plateBuffs ?? new Map();
+      c.plateBuffs.set(h.uid, (c.plateBuffs.get(h.uid) ?? 0) + copies);
+    }
+    if (s.selfHarm > 0) {
+      this.damagePlayer(s.selfHarm, true);
+      if (this.isDead) return true;
+    }
     // medic cards are used up
     if (isMedic(card.defId)) this.consumeCard(card);
     if (resolved === 2 && card.defId === 'echoscar') {
@@ -1202,10 +1223,11 @@ export class Game {
       if (t) targets = [t];
     }
 
-    if (s.block > 0) {
-      this.playerBlock += s.block;
-      if (s.retain) this.retainBlock += s.block;
-      this.emit({ type: 'block', amount: s.block });
+    const plate = s.block + (c.plateBuffs?.get(card.uid) ?? 0);
+    if (plate > 0) {
+      this.playerBlock += plate;
+      if (s.retain) this.retainBlock += plate;
+      this.emit({ type: 'block', amount: plate });
     }
     const bonus = this.combatBonus(card);
     const hits = s.hits + (chained ? s.chain : 0) + (living.length >= 2 ? s.swarm : 0);
@@ -1222,8 +1244,13 @@ export class Game {
       for (let h = 0; h < hits && t.alive; h++) {
         const base = s.damage + bonus + this.playerStatus.strength + (h === 0 ? extra : 0);
         const dmg = this.scale(base, this.playerStatus.weak > 0, t.status.exposed > 0);
-        dealt += this.damageEnemy(t, dmg);
+        const landed = this.damageEnemy(t, dmg);
+        dealt += landed;
         if (this.isDead) return;
+        if (landed > 0) {
+          this.growInHand('mirror', 1);
+          if (s.lifesteal > 0) this.healPlayer(s.lifesteal);
+        }
       }
       if (t.alive) {
         t.status.tagged += s.tag;
@@ -1282,6 +1309,21 @@ export class Game {
       }
       default:
         break;
+    }
+  }
+
+  /** Cards in hand carrying an elite gene: they grow from what happens around them. */
+  private handWith(gene: string): CardInstance[] {
+    return this.combat?.hand.filter((h) => h.genes.includes(gene)) ?? [];
+  }
+
+  /** Grow every held card with this gene by n per copy of the gene (damage this fight). */
+  private growInHand(gene: string, n: number) {
+    const c = this.combat;
+    if (!c) return;
+    for (const h of this.handWith(gene)) {
+      const copies = h.genes.filter((g) => g === gene).length;
+      c.buffs.set(h.uid, (c.buffs.get(h.uid) ?? 0) + n * copies);
     }
   }
 
@@ -1405,6 +1447,7 @@ export class Game {
       this.corpses.push({ uid: e.uid, defId: e.defId, biomass: def.biomass, tagged: e.status.tagged > 0, taken: false });
       this.emit({ type: 'enemyDie', uid: e.uid });
       if (e.status.tagged > 0) this.printPatches();
+      this.growInHand('bloodlust', 3);
       if (def.splits && !e.split) {
         const half = Math.max(1, Math.floor(e.maxHp / 2));
         this.spawnEnemy(e.defId, half, true);
@@ -1499,6 +1542,7 @@ export class Game {
     if (!c) return;
     if (taken > 0) {
       c.hurtRound = true;
+      this.growInHand('painengine', 2);
       for (const card of c.hand) {
         if (card.defId === 'unscarred') c.held.delete(card.uid);
         if (card.defId === 'scartissue') {
@@ -1640,7 +1684,12 @@ export class Game {
       sDiscard: this.sDiscard,
       oxygen: this.oxygen,
       combat: this.combat
-        ? { ...this.combat, buffs: [...this.combat.buffs.entries()], held: [...this.combat.held.entries()] }
+        ? {
+          ...this.combat,
+          buffs: [...this.combat.buffs.entries()],
+          held: [...this.combat.held.entries()],
+          plateBuffs: [...(this.combat.plateBuffs ?? new Map()).entries()],
+        }
         : null,
       playerBlock: this.playerBlock,
       playerStatus: this.playerStatus,
@@ -1710,7 +1759,10 @@ export class Game {
           buffs: new Map(d.combat.buffs),
         }
         : null;
-      if (g.combat) g.combat.held = new Map(d.combat.held ?? []);
+      if (g.combat) {
+        g.combat.held = new Map(d.combat.held ?? []);
+        g.combat.plateBuffs = new Map(d.combat.plateBuffs ?? []);
+      }
       g.relinkPiles();
       g.playerBlock = d.playerBlock;
       g.playerStatus = d.playerStatus;

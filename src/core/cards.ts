@@ -21,6 +21,8 @@ const EMPTY: CardStats = {
   swarm: 0,
   bioCost: 0,
   triage: 0,
+  lifesteal: 0,
+  selfHarm: 0,
 };
 
 /** Medic cards: free to play, they mend integrity. Some are paid for in biomass. */
@@ -324,6 +326,14 @@ export interface Gene {
   apply: (s: CardStats) => void;
   /** A defect: only ever arrives from an Unstable mutation, never offered at a pod. */
   defect?: boolean;
+  /** Elite mutation: rare at pods, strong, and always with a drawback. */
+  elite?: boolean;
+  /** The drawback, shown in red. */
+  drawback?: string;
+  /** Maximum integrity paid when spliced. */
+  maxHpCost?: number;
+  /** Rules text for a triggered effect the stat lines cannot express. */
+  rule?: string;
 }
 
 export const GENES: Record<string, Gene> = {
@@ -392,6 +402,37 @@ export const GENES: Record<string, Gene> = {
     id: 'triagegene', name: 'Triage', prefix: 'Triaging', deck: 'combat', cost: 5,
     text: 'Tagged deaths this fight print a Clot Patch', canApply: (s) => s.tag > 0, apply: (s) => { s.triage += 1; },
   },
+  // ---- Elite mutations: rare, strong, with a price ----
+  mirror: {
+    id: 'mirror', name: 'Mirror Neurons', prefix: 'Mirroring', deck: 'combat', cost: 14, elite: true,
+    text: 'Learns from your other attacks', rule: 'While in hand: each hit by another card, +1 damage this fight.',
+    drawback: '+1 cost', canApply: (s) => s.damage > 0, apply: (s) => { s.cost += 1; },
+  },
+  bloodlust: {
+    id: 'bloodlust', name: 'Bloodlust', prefix: 'Frenzied', deck: 'combat', cost: 12, elite: true, maxHpCost: 5,
+    text: 'Feeds on every death', rule: 'While in hand: each enemy death, +3 damage this fight.',
+    drawback: '−5 max integrity when spliced', canApply: (s) => s.damage > 0, apply: () => {},
+  },
+  painengine: {
+    id: 'painengine', name: 'Pain Engine', prefix: 'Agonized', deck: 'combat', cost: 12, elite: true,
+    text: 'Hurts into power', rule: 'While in hand: each time you lose integrity, +2 damage this fight.',
+    drawback: 'costs 1 biomass to play', canApply: (s) => s.damage > 0, apply: (s) => { s.bioCost += 1; },
+  },
+  hiveshell: {
+    id: 'hiveshell', name: 'Hive Shell', prefix: 'Hived', deck: 'combat', cost: 12, elite: true,
+    text: 'Thickens as you act', rule: 'While in hand: each other card you play, +1 plating this fight.',
+    drawback: '+1 cost', canApply: (s) => s.block > 0, apply: (s) => { s.cost += 1; },
+  },
+  parasite: {
+    id: 'parasite', name: 'Parasite', prefix: 'Parasitic', deck: 'combat', cost: 13, elite: true,
+    text: 'Heal 1 per hit that lands', drawback: '−2 damage',
+    canApply: (s) => s.damage > 2, apply: (s) => { s.lifesteal += 1; s.damage -= 2; },
+  },
+  glassmarrow: {
+    id: 'glassmarrow', name: 'Glass Marrow', prefix: 'Glass', deck: 'combat', cost: 10, elite: true,
+    text: '+7 damage', drawback: 'lose 2 integrity per play',
+    canApply: (s) => s.damage > 0, apply: (s) => { s.damage += 7; s.selfHarm += 2; },
+  },
   brittle: {
     id: 'brittle', name: 'Brittle', prefix: 'Brittle', deck: 'combat', cost: 0, defect: true,
     text: '−2 damage (defect)', canApply: (s) => s.damage > 0, apply: (s) => { s.damage -= 2; },
@@ -441,15 +482,22 @@ export function cardName(card: CardInstance): string {
 
 /** Biomass price to splice a gene into a card. Grows with the card's level. */
 export function spliceCost(card: CardInstance, geneId: string): number {
-  return GENES[geneId].cost + 2 * cardLevel(card);
+  return Math.round(GENES[geneId].cost * 1.5) + 3 * cardLevel(card);
 }
 
 export function genesFor(card: CardInstance): Gene[] {
   const def = cardDef(card);
   const s = cardStats(card);
   return Object.values(GENES).filter(
-    (g) => !g.defect && (g.deck === 'any' || g.deck === def.deck) && g.canApply(s, def),
+    (g) => !g.defect && !g.elite && (g.deck === 'any' || g.deck === def.deck) && g.canApply(s, def),
   );
+}
+
+/** Elite mutations that could bond with this card. */
+export function eliteGenesFor(card: CardInstance): Gene[] {
+  const def = cardDef(card);
+  const s = cardStats(card);
+  return Object.values(GENES).filter((g) => g.elite && (g.deck === 'any' || g.deck === def.deck) && g.canApply(s, def));
 }
 
 /** Genes an Unstable mutation can land: good ones and defects, both filtered to fit the card. */
@@ -457,7 +505,7 @@ export function mutationsFor(card: CardInstance, printed?: CardStats): { good: G
   const def = cardDef(card);
   const s = printed ?? cardStats(card);
   const fits = (g: Gene) => (g.deck === 'any' || g.deck === def.deck) && g.canApply(s, def);
-  const all = Object.values(GENES).filter(fits);
+  const all = Object.values(GENES).filter((g) => !g.elite && fits(g));
   return { good: all.filter((g) => !g.defect), bad: all.filter((g) => g.defect) };
 }
 
@@ -522,6 +570,12 @@ export function cardText(card: CardInstance, statsOverride?: CardStats, brief = 
   if (s.energy > 0) lines.push(`+${s.energy} Energy.`);
   if (s.draw > 0) lines.push(`Draw ${s.draw}.`);
   if (s.heal > 0) lines.push(`Heal ${s.heal}.`);
+  if (s.lifesteal > 0) lines.push(`Heal ${s.lifesteal} per hit.`);
+  if (s.selfHarm > 0) lines.push(`Lose ${s.selfHarm} integrity.`);
+  for (const gid of new Set(card.genes)) {
+    const r = GENES[gid]?.rule;
+    if (r) lines.push(brief ? r.replace('While in hand: each', 'In hand:').replace(' this fight', '') : r);
+  }
   if (s.bioCost > 0 && !brief) lines.push(`Costs ${s.bioCost} biomass.`);
   if (s.triage > 0) {
     lines.push(brief

@@ -43,6 +43,10 @@ export interface CardStats {
   bioCost: number;
   /** This fight: each tagged enemy that dies prints this many Clot Patches into your hand. */
   triage: number;
+  /** Heal this much per hit that lands. */
+  lifesteal: number;
+  /** Integrity lost (through plating) each time the card is played. */
+  selfHarm: number;
 }
 
 export interface CardDef {

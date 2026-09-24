@@ -53,7 +53,7 @@ describe('card evolution', () => {
   it('prices splicing by card level', () => {
     const base = card('scalpel');
     const lvl2 = card('scalpel', ['serrated', 'serrated']);
-    expect(spliceCost(lvl2, 'serrated')).toBe(spliceCost(base, 'serrated') + 4);
+    expect(spliceCost(lvl2, 'serrated')).toBe(spliceCost(base, 'serrated') + 6);
   });
 
   it('rejects genes that do not fit', () => {
@@ -1262,5 +1262,86 @@ describe('medic consumption and triage', () => {
     const h: CardInstance = { uid: 1, defId: 'harpoon', genes: [] };
     expect(genesFor(h).some((x) => x.id === 'triagegene')).toBe(true);
     expect(cardStats(splice(h, 'triagegene')).triage).toBe(1);
+  });
+});
+
+describe('splicing prices and elite mutations', () => {
+  it('splicing costs more: 1.5× the gene price, +3 per level', () => {
+    expect(spliceCost({ uid: 1, defId: 'scalpel', genes: [] }, 'serrated')).toBe(6);
+    expect(spliceCost({ uid: 1, defId: 'scalpel', genes: ['serrated'] }, 'serrated')).toBe(9);
+  });
+
+  it('elite genes never appear in normal offers or mutations, only sometimes at pods', () => {
+    const c: CardInstance = { uid: 1, defId: 'scalpel', genes: [] };
+    expect(genesFor(c).some((x) => x.elite)).toBe(false);
+    let seen = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const g = new Game(seed);
+      g.phase = 'splice';
+      const sc = g.combatDeck.find((x) => x.defId === 'scalpel')!;
+      if (g.offersFor(sc.uid).some((id) => GENES[id].elite)) seen++;
+    }
+    expect(seen).toBeGreaterThan(4);
+    expect(seen).toBeLessThan(25);
+  });
+
+  /** A fight with the given cards in hand. */
+  function hand(ids: [string, string[]][]) {
+    const g = new Game(5);
+    const cards: CardInstance[] = ids.map(([id, genes], i) => ({ uid: 9700 + i, defId: id, genes }));
+    g.combatDeck.push(...cards);
+    fightIn(g, ['crawler', 'tick'], null);
+    const c = g.combat!;
+    c.hand = [...cards];
+    c.energy = 9;
+    for (const e of c.enemies) e.hp = 999;
+    return { g, c, cards };
+  }
+
+  it('Mirror Neurons: +1 damage this fight for each hit by another card', () => {
+    const { g, cards, c } = hand([['scalpel', ['mirror']], ['bonesaw', []]]);
+    g.playCombat(cards[1].uid, c.enemies[0].uid);
+    expect(g.displayStats(cards[0]).damage).toBe(6 + 2);
+    expect(cardStats(cards[0]).cost).toBe(2);
+  });
+
+  it('Bloodlust: +3 per enemy death while held, and costs 5 max integrity to splice', () => {
+    const { g, cards, c } = hand([['scalpel', ['bloodlust']], ['scalpel', []]]);
+    c.enemies[1].hp = 1;
+    g.playCombat(cards[1].uid, c.enemies[1].uid);
+    expect(g.displayStats(cards[0]).damage).toBe(9);
+    const g2 = new Game(5);
+    g2.phase = 'splice';
+    g2.biomass = 99;
+    const sc = g2.combatDeck.find((x) => x.defId === 'scalpel')!;
+    g2.spliceCard(sc.uid, 'bloodlust');
+    expect(g2.maxHp).toBe(37);
+  });
+
+  it('Pain Engine: +2 each time you lose integrity; costs 1 biomass to play', () => {
+    const { g, cards } = hand([['scalpel', ['painengine']]]);
+    (g as unknown as { damagePlayer(n: number): void }).damagePlayer(5);
+    expect(g.displayStats(cards[0]).damage).toBe(8);
+    expect(cardStats(cards[0]).bioCost).toBe(1);
+  });
+
+  it('Hive Shell: +1 plating per other card played while held', () => {
+    const { g, cards, c } = hand([['brace', ['hiveshell']], ['scalpel', []], ['scalpel', []]]);
+    g.playCombat(cards[1].uid, c.enemies[0].uid);
+    g.playCombat(cards[2].uid, c.enemies[0].uid);
+    expect(g.displayStats(cards[0]).block).toBe(7);
+    g.playCombat(cards[0].uid);
+    expect(g.playerBlock).toBe(7);
+  });
+
+  it('Parasite heals per hit; Glass Marrow hits hard but hurts you', () => {
+    const { g, cards, c } = hand([['bonesaw', ['parasite']], ['scalpel', ['glassmarrow']]]);
+    g.hp = 20;
+    g.playCombat(cards[0].uid, c.enemies[0].uid);
+    expect(g.hp).toBe(22);
+    g.playerBlock = 50;
+    g.playCombat(cards[1].uid, c.enemies[0].uid);
+    expect(g.hp).toBe(20);
+    expect(cardStats(cards[1]).damage).toBe(13);
   });
 });

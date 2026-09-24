@@ -62,6 +62,7 @@ const HINTS: Record<string, string> = {
   hold: 'Hold — stays in your hand at the end of your turn. It takes one of your draw slots.',
   sibling: 'Sibling — printed from one line. Every Imprint one copy gets, all copies get, and new copies arrive already grown.',
   unstable: 'Unstable — the result is random, and one time in three it is a defect.',
+  elite: 'Elite mutation — rare at splice pods. Stronger than any normal gene, and it always takes something back.',
   fleeting: 'Fleeting — printed during this fight. It is not part of your deck and is gone when the fight ends.',
   consume: 'Consume — removes a card from your deck for the rest of the run. Grief Engines remember every one.',
   imprint: 'Imprint — a permanent change this card earned in play. No limit. It stays for the whole run.',
@@ -1066,8 +1067,10 @@ export class App {
         const cost = spliceCost(card, id);
         const after = splice(card, id);
         return `
-          <button class="gene" data-act="gene" data-gene="${id}" ${cost > g.biomass ? 'disabled' : ''}>
+          <button class="gene ${gene.elite ? 'elite' : ''}" data-act="gene" data-gene="${id}" ${cost > g.biomass ? 'disabled' : ''}>
+            ${gene.elite ? '<i class="elitetag" data-hint="elite">elite mutation</i>' : ''}
             <b>${gene.name} · ${gene.text}</b><span class="price">${cost}</span>
+            ${gene.drawback ? `<small class="drawback">price: ${gene.drawback}</small>` : ''}
             <small>becomes <em>${esc(cardName(after))}</em>: ${cardText(after).join(' ')}</small>
           </button>`;
       });
@@ -1080,7 +1083,7 @@ export class App {
     return `
       <div class="eyebrow">splice pod · <span class="bioline">${g.biomass} biomass</span></div>
       <h2>evolve</h2>
-      <p>Each gene rewrites a card for the rest of the run. Genes stack without limit, but each costs more than the last.</p>
+      <p>Each gene rewrites a card for the rest of the run. Genes stack without limit, but each costs more than the last. Now and then a pod offers an elite mutation — at a price.</p>
       <div class="tabs">
         <button class="btn small" data-act="tab" data-deck="combat" aria-pressed="${this.spliceTab === 'combat'}">tactics</button>
         <button class="btn small" data-act="tab" data-deck="survey" aria-pressed="${this.spliceTab === 'survey'}">survey</button>
