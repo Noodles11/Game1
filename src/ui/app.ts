@@ -54,7 +54,7 @@ const HINTS: Record<string, string> = {
   cost: 'Cost — what this card needs to play: energy in a fight, oxygen while exploring.',
   genes: 'Genes — each dot is one splice. They stack without limit, but each one costs more biomass than the last.',
   resonance: 'Resonance — in Kessra, every 3rd card you play each turn resolves twice.',
-  reflect: 'Reflect — while this enemy has plating, half of each hit you land comes back at you. Strip its plating first.',
+  reflect: 'Reflect — while this enemy has plating, half of each hit you land comes back at you, straight through your own plating. Strip its plating first.',
   splits: 'Splits — the first time it dies, it breaks into two copies at half health.',
   allies: 'Chorus — gives every other enemy strength. Kill it first.',
   summon: 'Shed — calls another enemy into the fight.',

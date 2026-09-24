@@ -1373,7 +1373,8 @@ export class Game {
       const back = Math.floor(amount * def.reflect);
       if (back > 0) {
         this.emit({ type: 'reflect', amount: back });
-        this.damagePlayer(back);
+        // reflected light goes straight through plating
+        this.damagePlayer(back, true);
         if (this.isDead) return dealt;
       }
     }
@@ -1463,8 +1464,8 @@ export class Game {
   }
 
   /** One hit on the player. Plating cuts every single hit by its full value, and is not used up. */
-  private damagePlayer(amount: number) {
-    const blocked = Math.min(this.playerBlock, amount);
+  private damagePlayer(amount: number, pierce = false) {
+    const blocked = pierce ? 0 : Math.min(this.playerBlock, amount);
     const taken = amount - blocked;
     this.hp -= taken;
     this.emit({ type: 'playerHit', amount: taken, blocked });

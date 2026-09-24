@@ -560,6 +560,20 @@ describe('worlds: Kessra mobs', () => {
     expect(g.hp).toBe(hp - 3); // 6 damage, half reflected
   });
 
+  it('reflected damage goes straight through your plating', () => {
+    const g = new Game(4);
+    fightIn(g, ['refractor']);
+    const [r] = g.livingEnemies();
+    r.block = 2;
+    g.playerBlock = 20;
+    const hp = g.hp;
+    const scalpel: CardInstance = { uid: 7003, defId: 'scalpel', genes: [] };
+    g.combat!.hand = [scalpel];
+    g.playCombat(scalpel.uid, r.uid);
+    expect(g.hp).toBe(hp - 3);
+    expect(g.playerBlock).toBe(20);
+  });
+
   it('Singing Geode gives its allies strength', () => {
     const g = new Game(4);
     fightIn(g, ['geode', 'crawler']);
