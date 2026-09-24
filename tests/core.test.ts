@@ -706,3 +706,29 @@ describe('full run', () => {
     expect(restored.segments).toEqual(g.segments);
   });
 });
+
+describe('landscapes', () => {
+  it('the lab has window and vat halls', () => {
+    const shapes = new Game(1).segments.map((s) => s.shape);
+    expect(shapes).toContain('window');
+    expect(shapes).toContain('vats');
+  });
+
+  it('Kessra mixes open caverns with tunnels; obstacles and exits stay tunnels', () => {
+    let caverns = 0;
+    let tunnels = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      const g = new Game(seed);
+      g.phase = 'mainframe';
+      g.chooseWorld('kessra');
+      g.travel(g.passages()[0].id);
+      for (const s of g.segments) {
+        if (s.shape === 'cavern') caverns++;
+        else tunnels++;
+        if (s.feature === 'door' || s.feature === 'debris' || s.feature === 'exit') expect(s.shape).not.toBe('cavern');
+      }
+    }
+    expect(caverns).toBeGreaterThan(5);
+    expect(tunnels).toBeGreaterThan(5);
+  });
+});

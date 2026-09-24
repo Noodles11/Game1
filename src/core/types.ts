@@ -116,7 +116,12 @@ export interface Segment {
   elite?: boolean;
   /** Event id, for 'event' segments. */
   eventId?: string;
+  /** How the section is built. Tunnel is the default closed corridor. */
+  shape?: SegmentShape;
 }
+
+/** tunnel: closed corridor. cavern: open, walls replaced by structures. window/vats: lab variants. */
+export type SegmentShape = 'tunnel' | 'cavern' | 'window' | 'vats';
 
 /** Permanent-for-the-run bonuses picked after a sector boss falls. */
 export interface Modifiers {

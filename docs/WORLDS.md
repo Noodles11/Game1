@@ -242,3 +242,20 @@ Recommendation: build M1 → M2 first. That proves the whole loop end to end wit
 - **Elites** reward a choice of Kessra-only cards plus 6 biomass.
 - **Events:** 4 in Kessra, each with a log fragment kept forever. The 5th log comes from the boss.
 - Bug fixed along the way: combat cards with *Heal* (Graft) never actually healed. They do now.
+
+## 11. Landscapes
+
+Sections are no longer always closed corridors. Each segment has a `shape`:
+
+| Shape | Where | Look |
+|---|---|---|
+| tunnel | everywhere (default) | Octagon corridor. Kessra swaps bulkheads for jagged rock arches with crystals. |
+| cavern | Kessra, about half of node sections, always the boss | Open floor; crystal spires and rock mounds instead of walls; the far cave shows behind. |
+| window | lab | An observation port with stars and a planet. |
+| vats | lab | Old growth vats with something curled inside. |
+
+- Kessra has a cave **backdrop** (stalactites, two spire ridges, drifting motes) and **flora**: glass ferns and pulsing lichen.
+- **Procedural textures** on faces: crystal striations, facets and glints (Kessra); rust and rivets and hazard paint (lab).
+- Stepping from a cavern into a tunnel shows a **cliff face** around the tunnel mouth.
+- Kessra **junctions** are a cliff with tunnel mouths, framed by crystal clusters.
+- Doors, wreckage and exits always stay in tunnels.

@@ -164,14 +164,14 @@ export class Game {
     const whispers = this.rng.sample(WHISPERS, 3);
     return [
       seg('none', { whisper: `PRINT COMPLETE. CLONE #${String(this.cloneNo).padStart(4, '0')}. Walk.` }),
-      seg('crate'),
+      seg('crate', { shape: 'vats' }),
       seg('enemies', { encounter: ['tick', 'tick'], whisper: 'Clicking. Many small legs.' }),
       seg('debris', { whisper: whispers[0] }),
       seg('pod', { whisper: 'A splice pod. It still remembers how to rewrite you.' }),
       seg('door', { dark: true }),
       seg('enemies', { encounter: ['copy', 'husk'], dark: true, whisper: 'It has your face. Almost.' }),
       seg('crate', { whisper: whispers[1] }),
-      seg('none', { whisper: whispers[2] }),
+      seg('none', { whisper: whispers[2], shape: 'window' }),
       seg('pod', { whisper: 'Another pod. The liquid is the wrong color.' }),
       seg('door'),
       seg('enemies', { encounter: ['choir'], whisper: 'Singing. In your voice. In all of them.', sectorBoss: 1 }),
@@ -184,7 +184,7 @@ export class Game {
     });
     const whispers = this.rng.sample(SECTOR2_WHISPERS, 3);
     return [
-      seg('none', { whisper: 'SECTOR 2. The air changes here. Something older breathes it.' }),
+      seg('none', { whisper: 'SECTOR 2. The air changes here. Something older breathes it.', shape: 'window' }),
       seg('crate'),
       seg('enemies', { encounter: ['drone'], whisper: 'A thin whine. Something small is hunting with radar, not eyes.' }),
       seg('debris', { whisper: whispers[0] }),
@@ -192,7 +192,7 @@ export class Game {
       seg('door', { dark: true }),
       seg('enemies', { encounter: ['drone', 'bloom'], dark: true, whisper: 'Wet clicking, and under it, something enormous, breathing slow.' }),
       seg('crate', { whisper: whispers[1] }),
-      seg('none', { whisper: whispers[2] }),
+      seg('none', { whisper: whispers[2], shape: 'vats' }),
       seg('pod', { whisper: 'The last pod. The glass is fogged from the inside.' }),
       seg('door'),
       seg('enemies', { encounter: ['first'], whisper: 'A shape too large for the hall. It already knows your name.', sectorBoss: 2 }),
@@ -578,34 +578,35 @@ export class Game {
     const seg = (feature: Segment['feature'], extra: Partial<Segment> = {}): Segment => ({
       feature, dark: false, lit: false, revealed: false, cleared: false, ...extra,
     });
-    const entry = seg('none', { whisper: this.rng.pick(w.whispers) });
+    const open = (p: number): Partial<Segment> => (this.rng.next() < p ? { shape: 'cavern' } : {});
+    const entry = seg('none', { whisper: this.rng.pick(w.whispers), ...open(0.5) });
     const exit = seg('exit');
     const flare = node.flared || undefined;
     switch (node.kind) {
       case 'fight': {
         const pool = node.row < 3 ? w.fightsEarly : w.fightsLate;
-        const fight = seg('enemies', { encounter: [...this.rng.pick(pool)], dark: this.rng.next() < 0.3, flareExposed: flare });
+        const fight = seg('enemies', { encounter: [...this.rng.pick(pool)], dark: this.rng.next() < 0.3, flareExposed: flare, ...open(0.55) });
         const roll = this.rng.next();
         const obstacle = roll < 0.25 ? [seg('door')] : roll < 0.45 ? [seg('debris')] : [];
         return [entry, ...obstacle, fight, exit];
       }
       case 'elite':
-        return [entry, seg('enemies', { encounter: [...this.rng.pick(w.elites)], elite: true, flareExposed: flare, whisper: 'Something bigger. It has been waiting for you.' }), exit];
+        return [entry, seg('enemies', { encounter: [...this.rng.pick(w.elites)], elite: true, flareExposed: flare, whisper: 'Something bigger. It has been waiting for you.', ...open(0.6) }), exit];
       case 'locker':
-        return [entry, seg('crate'), exit];
+        return [entry, seg('crate', open(0.6)), exit];
       case 'pod':
-        return [entry, seg('pod', { whisper: 'A splice pod, grown over with crystal. It still works.' }), exit];
+        return [entry, seg('pod', { whisper: 'A splice pod, grown over with crystal. It still works.', ...open(0.6) }), exit];
       case 'event': {
         const unseen = w.events.filter((id) => !this.segmentsSeenEvent(id));
         const id = this.rng.pick(unseen.length ? unseen : w.events);
         this.seenEvents.push(id);
-        return [entry, seg('event', { eventId: id }), exit];
+        return [entry, seg('event', { eventId: id, ...open(0.7) }), exit];
       }
       case 'boss':
       default:
         return [
           seg('none', { whisper: w.bossWhisper }),
-          seg('enemies', { encounter: [w.boss], worldBoss: true }),
+          seg('enemies', { encounter: [w.boss], worldBoss: true, shape: 'cavern' }),
           exit,
         ];
     }

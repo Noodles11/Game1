@@ -38,6 +38,12 @@ interface Biome {
   exit: [string, string, string];
   crystals: boolean;
   pipes: boolean;
+  /** Open caves behind everything, seen through caverns. */
+  backdrop: boolean;
+  /** Rough rock arches instead of bulkhead rings. */
+  rough: boolean;
+  texture: 'hull' | 'crystal';
+  flora: boolean;
 }
 
 const BIOMES: Record<string, Biome> = {
@@ -45,13 +51,13 @@ const BIOMES: Record<string, Biome> = {
     faces: ['#1b1d22', '#23262c', '#2d3036', '#2a2522', '#352e29', '#2a2522', '#2d3036', '#23262c'],
     lamp: INK.sodium, glow: '227,163,59', lampOff: '#3a3226',
     ring: [INK.rust, '#2e2a28'], exit: ['#fff6e0', '#e8d3a8', '#6b5d45'],
-    crystals: false, pipes: true,
+    crystals: false, pipes: true, backdrop: false, rough: false, texture: 'hull', flora: false,
   },
   kessra: {
     faces: ['#131c25', '#192731', '#1f313d', '#17232c', '#213746', '#17232c', '#1f313d', '#192731'],
     lamp: '#9fe6f0', glow: '127,216,232', lampOff: '#24343e',
     ring: ['#23404d', '#1b2a34'], exit: ['#f2fbff', '#b8e6f0', '#3f6a7a'],
-    crystals: true, pipes: false,
+    crystals: true, pipes: false, backdrop: true, rough: true, texture: 'crystal', flora: true,
   },
 };
 
@@ -314,6 +320,7 @@ export class Stage {
       ctx.translate(-this.cx, -this.cy);
     }
 
+    if (this.biome.backdrop) this.drawBackdrop();
     if (g.phase === 'map') {
       this.drawJunction();
     } else {
@@ -339,23 +346,47 @@ export class Stage {
     const near = this.octagon(nearZ);
     const far = this.octagon(farZ);
     const fog = this.fog(1.25);
-    for (let k = 0; k < 8; k++) {
-      ctx.fillStyle = mix(mix(bio.faces[k], bio.lamp, 0.05), INK.void, fog);
-      fillPoly(ctx, [near[k], near[(k + 1) % 8], far[(k + 1) % 8], far[k]]);
-    }
-    ctx.strokeStyle = INK.bone;
-    ctx.lineWidth = Math.max(0.8, this.unit(nearZ) * 0.006);
-    ctx.globalAlpha = 0.5;
-    for (let k = 0; k < 8; k++) sketchStroke(ctx, [near[k], far[k]], 900 + k + this.boil, 1.2);
-    ctx.globalAlpha = 1;
-    if (bio.crystals) this.drawCrystals(97, nearZ, farZ, fog);
+    const sd = this.segSeed(0) + 500;
+    if (bio.backdrop) {
+      // Open cave: a floor, then a cliff face with the tunnel mouths cut into it.
+      const yn = this.floorY(nearZ);
+      const yf = this.floorY(farZ);
+      const floor: Pt[] = [[this.cx - this.W * 1.6, yn], [this.cx + this.W * 1.6, yn], [this.cx + this.W, yf], [this.cx - this.W, yf]];
+      ctx.fillStyle = mix(bio.faces[4], INK.void, fog);
+      fillPoly(ctx, floor);
+      this.textureQuad(floor, sd, fog, true);
+      const u = this.unit(farZ);
+      const topY = this.cy - u * 1.5;
+      const cliff: Pt[] = [[-10, yf]];
+      for (let k = 0; k <= 16; k++) cliff.push([(k / 16) * (this.W + 20) - 10, topY + Math.abs(noise(sd + k * 3)) * u * 0.55]);
+      cliff.push([this.W + 10, yf]);
+      ctx.fillStyle = mix(bio.ring[1], INK.void, 0.15);
+      fillPoly(ctx, cliff);
+      this.textureQuad([[0, topY], [this.W, topY], [this.W, yf], [0, yf]], sd + 5, 0.2, false);
+      ctx.strokeStyle = INK.bone;
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = 1.2;
+      sketchStroke(ctx, cliff.slice(1, -1), sd + this.boil, 1.5, false);
+      ctx.globalAlpha = 1;
+    } else {
+      for (let k = 0; k < 8; k++) {
+        ctx.fillStyle = mix(mix(bio.faces[k], bio.lamp, 0.05), INK.void, fog);
+        fillPoly(ctx, [near[k], near[(k + 1) % 8], far[(k + 1) % 8], far[k]]);
+      }
+      ctx.strokeStyle = INK.bone;
+      ctx.lineWidth = Math.max(0.8, this.unit(nearZ) * 0.006);
+      ctx.globalAlpha = 0.5;
+      for (let k = 0; k < 8; k++) sketchStroke(ctx, [near[k], far[k]], 900 + k + this.boil, 1.2);
+      ctx.globalAlpha = 1;
+      if (bio.crystals) this.drawCrystals(97, nearZ, farZ, fog);
 
-    // The back wall.
-    ctx.fillStyle = mix(bio.ring[1], INK.void, 0.2);
-    fillPoly(ctx, far);
-    ctx.globalAlpha = 0.8;
-    sketchStroke(ctx, far, 950 + this.boil, 1.5, true);
-    ctx.globalAlpha = 1;
+      // The back wall.
+      ctx.fillStyle = mix(bio.ring[1], INK.void, 0.2);
+      fillPoly(ctx, far);
+      ctx.globalAlpha = 0.8;
+      sketchStroke(ctx, far, 950 + this.boil, 1.5, true);
+      ctx.globalAlpha = 1;
+    }
 
     const paths = g.passages();
     const n = paths.length;
@@ -417,7 +448,21 @@ export class Stage {
       ctx.textBaseline = 'middle';
       ctx.fillText(KIND_GLYPH[kind], x, sy + 1);
     });
-    this.drawRing(96, nearZ, this.lampOn(96), false);
+    if (bio.backdrop) {
+      // crystal spires between and beside the mouths, flora at their feet
+      const u = this.unit(farZ);
+      const fyb = this.floorY(farZ);
+      for (let k = 1; k < n; k++) {
+        const x = (passageSlot(k - 1, n) + passageSlot(k, n)) * 0.5 * this.W;
+        this.drawSpire(x, fyb, u * 0.45, 0, sd + k * 29, 0.1);
+      }
+      // bigger clusters framing the fork, a little nearer
+      const zc = 1.15;
+      for (const side of [-1, 1]) this.drawSpire(this.cx + side * this.W * 0.44, this.floorY(zc), this.unit(zc), side, sd + side * 61, 0.05);
+      this.drawFlora(sd, nearZ, farZ, 0.1, 0.9);
+    } else {
+      this.drawRing(96, nearZ, this.lampOn(96), false);
+    }
   }
 
   private drawParticles() {
@@ -457,6 +502,13 @@ export class Stage {
     const far = this.octagon(zf);
     const fogMid = this.fog((nearZ + zf) / 2);
     const hidden = seg.dark && !seg.lit && i > g.pos;
+    const shape = seg.shape ?? 'tunnel';
+    const sd = this.segSeed(i);
+
+    if (shape === 'cavern') {
+      this.drawCavern(i, seg, nearZ, zf, zn, hidden);
+      return;
+    }
 
     // Exit light at the end of the corridor.
     if (seg.feature === 'exit') {
@@ -479,6 +531,12 @@ export class Stage {
       if (seg.feature === 'exit') col = mix(col, bio.exit[1], 0.25);
       ctx.fillStyle = mix(col, INK.void, hidden ? 0.85 : fogMid);
       fillPoly(ctx, [near[k], near[(k + 1) % 8], far[(k + 1) % 8], far[k]]);
+    }
+    if (!hidden) {
+      for (const k of [2, 3, 4, 5, 6]) {
+        this.textureQuad([near[k], near[(k + 1) % 8], far[(k + 1) % 8], far[k]], sd + k * 7, fogMid, k === 4);
+      }
+      if (shape === 'window') this.drawWindow(sd % 2 ? near : far, sd % 2 ? far : near, sd, fogMid);
     }
 
     // Ink details: seams, grating, pipes.
@@ -511,21 +569,489 @@ export class Stage {
       }
     }
     ctx.globalAlpha = 1;
-    if (bio.crystals && !hidden) this.drawCrystals(i, nearZ, zf, fogMid);
+    if (bio.crystals && !hidden) this.drawCrystals(sd, nearZ, zf, fogMid);
+    if (bio.flora && !hidden) this.drawFlora(sd, nearZ, zf, fogMid, 0.62);
 
     // Contents of the section.
     const zMid = (nearZ + zf) / 2;
+    if (shape === 'vats' && !hidden) {
+      const u = this.unit(zMid);
+      this.drawVat(this.cx - u * 0.68, this.floorY(zMid), u, fogMid, sd);
+      if (seg.feature !== 'crate') this.drawVat(this.cx + u * 0.68, this.floorY(zMid), u, fogMid, sd + 5);
+    }
     if (!hidden) this.drawFeature(seg, i, zMid, zn);
     else this.drawDarkness(seg, near, zMid);
 
-    // Bulkhead ring on the near edge.
-    if (zn > NEAR) this.drawRing(i, zn, lampOn, hidden);
+    // Bulkhead ring on the near edge. Out of a cavern, it becomes a tunnel mouth in a cliff.
+    if (zn > NEAR) {
+      if (bio.rough) {
+        if (g.segments[i - 1]?.shape === 'cavern') this.drawCliff(zn, sd, hidden);
+        this.drawRockArch(zn, sd, lampOn, hidden);
+      } else {
+        this.drawRing(i, zn, lampOn, hidden);
+      }
+    }
 
     // Hatch and wreckage sit in the near bulkhead's opening.
     if (!hidden && zn > NEAR) {
       if (seg.feature === 'door' && !seg.cleared) this.drawDoor(i, zn);
       if (seg.feature === 'debris') this.drawDebris(i, zn + 0.08, seg.cleared);
     }
+  }
+
+  /** A decoration seed unique to this section of this corridor. */
+  private segSeed(i: number): number {
+    const g = this.game;
+    return i * 101 + (g.mapNode ?? 0) * 977 + (g.world ? 13 : 0) + 7;
+  }
+
+  /** Far caves: a dark gradient, two ridges of crystal spires, drifting motes. */
+  private drawBackdrop() {
+    const { ctx } = this;
+    const bio = this.biome;
+    const W = this.W;
+    const H = this.H;
+    const grd = ctx.createLinearGradient(0, 0, 0, H);
+    grd.addColorStop(0, '#04080c');
+    grd.addColorStop(0.42, '#0a1720');
+    grd.addColorStop(0.58, '#10232f');
+    grd.addColorStop(1, '#03060a');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, W, H);
+    // hanging stalactites from the far ceiling
+    ctx.fillStyle = '#070d12';
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    for (let k = 0; k <= 22; k++) {
+      const x = (k / 22) * W;
+      const h = H * (0.04 + 0.12 * Math.abs(noise(k * 5.3 + 90)));
+      ctx.lineTo(x - W / 44, H * 0.02);
+      ctx.lineTo(x, h);
+    }
+    ctx.lineTo(W, 0);
+    ctx.closePath();
+    ctx.fill();
+    // two ridges of spires on the horizon
+    for (let layer = 0; layer < 2; layer++) {
+      const base = this.cy + H * (0.03 + layer * 0.07);
+      const n = 16 + layer * 6;
+      ctx.fillStyle = layer ? '#0c1b24' : '#08121a';
+      ctx.beginPath();
+      ctx.moveTo(0, base);
+      for (let k = 0; k <= n; k++) {
+        const x = (k / n) * W;
+        const h = H * (0.07 + 0.2 * Math.abs(noise(k * 3.1 + layer * 50))) * (layer ? 0.65 : 1);
+        ctx.lineTo(x - W / n * 0.35, base - h * 0.35);
+        ctx.lineTo(x, base - h);
+        ctx.lineTo(x + W / n * 0.3, base - h * 0.3);
+      }
+      ctx.lineTo(W, base);
+      ctx.lineTo(W, H);
+      ctx.lineTo(0, H);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = `rgba(${bio.glow},${layer ? 0.12 : 0.07})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    // drifting motes of light
+    for (let m = 0; m < 26; m++) {
+      const speed = 4 + (m % 3) * 3;
+      const x = (((noise(m * 7.7) + 1) / 2) * W + this.time * speed) % W;
+      const y = this.cy - H * 0.32 + ((noise(m * 13.1) + 1) / 2) * H * 0.6 + Math.sin(this.time * 0.6 + m) * 6;
+      const a = 0.25 + 0.35 * Math.max(0, Math.sin(this.time * 1.3 + m * 2.1));
+      ctx.fillStyle = `rgba(${bio.glow},${a})`;
+      ctx.beginPath();
+      ctx.arc(x, y, 1 + (m % 3) * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  /** An open section: a floor slab, and crystal structures where the walls would be. */
+  private drawCavern(i: number, seg: Segment, nearZ: number, zf: number, zn: number, hidden: boolean) {
+    const { ctx } = this;
+    const bio = this.biome;
+    const sd = this.segSeed(i);
+    const fog = this.fog((nearZ + zf) / 2);
+    const yn = this.floorY(nearZ);
+    const yf = this.floorY(zf);
+    const en = (this.W * 1.5) / nearZ;
+    const ef = (this.W * 1.5) / zf;
+    const floor: Pt[] = [[this.cx - en, yn], [this.cx + en, yn], [this.cx + ef, yf], [this.cx - ef, yf]];
+    ctx.fillStyle = mix(bio.faces[4], INK.void, hidden ? 0.85 : fog);
+    fillPoly(ctx, floor);
+    if (!hidden) {
+      this.textureQuad(floor, sd, fog, true);
+      ctx.strokeStyle = INK.bone;
+      ctx.globalAlpha = 0.35 * (1 - fog);
+      ctx.lineWidth = 1;
+      sketchStroke(ctx, [floor[3], floor[2]], sd + this.boil, 2);
+      ctx.globalAlpha = 1;
+    }
+    // Structures on both sides, at two depths. Gaps let you see into the caves beyond.
+    for (const t of [0.72, 0.22]) {
+      const z = nearZ + (zf - nearZ) * t;
+      const u = this.unit(z);
+      const fy = this.floorY(z);
+      const f = this.fog(z);
+      for (const side of [-1, 1]) {
+        if (noise(sd * 0.37 + side * 3 + t * 10) < -0.55) continue;
+        const x = this.cx + side * u * (0.95 + noise(sd + side + t * 7) * 0.2);
+        this.drawSpire(x, fy, u, side, sd + side * 17 + Math.round(t * 31), hidden ? 0.85 : f);
+      }
+    }
+    // crystal hangers from the unseen ceiling
+    if (!hidden) {
+      const z = (nearZ + zf) / 2;
+      const u = this.unit(z);
+      for (let k = 0; k < 3; k++) {
+        if (noise(sd + k * 9) < 0) continue;
+        const x = this.cx + noise(sd * 3 + k) * u * 1.4;
+        this.drawShard(x, this.cy - u * 1.35, u * (0.25 + Math.abs(noise(sd + k)) * 0.35), Math.PI / 2 + noise(k + sd) * 0.3, u * 0.08, fog, sd + k * 5);
+      }
+      this.drawFlora(sd, nearZ, zf, fog, 0.9);
+    }
+    const zMid = (nearZ + zf) / 2;
+    if (!hidden) this.drawFeature(seg, i, zMid, zn);
+    else this.drawDarkness(seg, this.octagon(nearZ, 1.8), zMid);
+  }
+
+  /** A rock mound with big crystals growing out of it. */
+  private drawSpire(x: number, fy: number, u: number, side: number, seed: number, fog: number) {
+    const { ctx } = this;
+    const bio = this.biome;
+    const w = u * (0.3 + Math.abs(noise(seed)) * 0.2);
+    const h = u * (0.18 + Math.abs(noise(seed + 1)) * 0.18);
+    const mound: Pt[] = [
+      [x - w, fy], [x - w * 0.7, fy - h * 0.6], [x - w * 0.2, fy - h], [x + w * 0.35, fy - h * 0.8], [x + w * 0.8, fy - h * 0.3], [x + w, fy],
+    ];
+    ctx.fillStyle = mix(bio.ring[1], INK.void, fog);
+    fillPoly(ctx, mound);
+    ctx.strokeStyle = INK.bone;
+    ctx.globalAlpha = 0.5 * (1 - fog);
+    ctx.lineWidth = Math.max(0.8, u * 0.008);
+    sketchStroke(ctx, mound, seed + this.boil, 1.2, false);
+    ctx.globalAlpha = 1;
+    const count = 3 + Math.floor(Math.abs(noise(seed + 2)) * 3);
+    for (let c = 0; c < count; c++) {
+      const bx = x + (c / (count - 1) - 0.5) * w * 1.1;
+      const len = u * (0.35 + Math.abs(noise(seed + c * 3)) * 0.5) * (c === Math.floor(count / 2) ? 1.4 : 1);
+      const ang = -Math.PI / 2 + side * 0.15 + noise(seed + c) * 0.35;
+      this.drawShard(bx, fy - h * 0.4, len, ang, len * 0.3, fog, seed + c * 11, true);
+    }
+  }
+
+  /** Glass ferns and glowing lichen on the floor. `spread` is how far out from centre they grow. */
+  private drawFlora(sd: number, nearZ: number, zf: number, _fog: number, spread: number) {
+    const { ctx } = this;
+    const bio = this.biome;
+    for (let k = 0; k < 4; k++) {
+      const pick = noise(sd * 1.3 + k * 17);
+      if (pick < -0.2) continue;
+      const t = 0.15 + Math.abs(noise(sd + k * 5)) * 0.7;
+      const z = nearZ + (zf - nearZ) * t;
+      const u = this.unit(z);
+      const f = this.fog(z);
+      if (f > 0.8) continue;
+      const side = k % 2 ? 1 : -1;
+      const x = this.cx + side * u * (spread + noise(sd + k) * 0.15);
+      const fy = this.floorY(z);
+      if (pick > 0.35) {
+        // glass fern: a curled stem with leaflets and a lit tip
+        const h = u * (0.22 + Math.abs(noise(sd + k * 2)) * 0.2);
+        const sway = Math.sin(this.time * 0.9 + k + sd) * u * 0.02;
+        const tip: Pt = [x - side * h * 0.35 + sway, fy - h];
+        ctx.strokeStyle = mix('#9fe6f0', INK.void, f);
+        ctx.globalAlpha = 0.8 * (1 - f);
+        ctx.lineWidth = Math.max(0.8, u * 0.006);
+        ctx.beginPath();
+        ctx.moveTo(x, fy);
+        ctx.quadraticCurveTo(x + side * h * 0.1, fy - h * 0.6, tip[0], tip[1]);
+        ctx.stroke();
+        for (let l = 1; l < 6; l++) {
+          const tt = l / 6;
+          const px = x + (tip[0] - x) * tt;
+          const py = fy + (tip[1] - fy) * tt;
+          const len = h * 0.18 * (1 - tt * 0.5);
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px - len, py - len * 0.5);
+          ctx.moveTo(px, py);
+          ctx.lineTo(px + len, py - len * 0.5);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+        const glow = ctx.createRadialGradient(tip[0], tip[1], 0, tip[0], tip[1], u * 0.07);
+        glow.addColorStop(0, `rgba(${bio.glow},${0.8 * (1 - f)})`);
+        glow.addColorStop(1, `rgba(${bio.glow},0)`);
+        ctx.fillStyle = glow;
+        ctx.fillRect(tip[0] - u * 0.07, tip[1] - u * 0.07, u * 0.14, u * 0.14);
+      } else {
+        // lichen: a cluster of pulsing points
+        const r = u * 0.12;
+        const pulse = 0.5 + 0.5 * Math.sin(this.time * 1.5 + k * 2 + sd);
+        const g = ctx.createRadialGradient(x, fy, 0, x, fy, r * 1.6);
+        g.addColorStop(0, `rgba(176,111,224,${0.25 * pulse * (1 - f)})`);
+        g.addColorStop(1, 'rgba(176,111,224,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x - r * 1.6, fy - r * 1.6, r * 3.2, r * 3.2);
+        ctx.fillStyle = `rgba(214,190,240,${0.8 * (1 - f)})`;
+        for (let d = 0; d < 8; d++) {
+          ctx.beginPath();
+          ctx.arc(x + noise(sd + k + d * 3) * r, fy - Math.abs(noise(sd + d * 7 + k)) * r * 0.35, Math.max(0.8, u * 0.008), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  /** Point inside a quad [n0, n1, f1, f0] at (u along, v deep). */
+  private quadAt(q: Pt[], u: number, v: number): Pt {
+    const ax = q[0][0] + (q[1][0] - q[0][0]) * u;
+    const ay = q[0][1] + (q[1][1] - q[0][1]) * u;
+    const bx = q[3][0] + (q[2][0] - q[3][0]) * u;
+    const by = q[3][1] + (q[2][1] - q[3][1]) * u;
+    return [ax + (bx - ax) * v, ay + (by - ay) * v];
+  }
+
+  /** Procedural surface detail: crystal striations and glints, or hull rust and rivets. */
+  private textureQuad(q: Pt[], seed: number, fog: number, isFloor: boolean) {
+    if (fog > 0.85) return;
+    const { ctx } = this;
+    const bio = this.biome;
+    const a = 1 - fog;
+    ctx.save();
+    ctx.beginPath();
+    q.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+    ctx.clip();
+    if (bio.texture === 'crystal') {
+      ctx.strokeStyle = `rgba(${bio.glow},${0.1 * a})`;
+      ctx.lineWidth = 1;
+      for (let k = 0; k < 6; k++) {
+        const u1 = (noise(seed + k * 3) + 1) / 2;
+        const u2 = u1 + noise(seed + k * 5) * 0.15;
+        const p = this.quadAt(q, u1, 0);
+        const r = this.quadAt(q, u2, 1);
+        ctx.beginPath();
+        ctx.moveTo(p[0], p[1]);
+        ctx.lineTo(r[0], r[1]);
+        ctx.stroke();
+      }
+      // facets: a few pale triangles catching light
+      ctx.fillStyle = `rgba(${bio.glow},${0.05 * a})`;
+      for (let k = 0; k < 2; k++) {
+        const u0 = (noise(seed + k * 11) + 1) / 2;
+        const v0 = (noise(seed + k * 13) + 1) / 2;
+        fillPoly(ctx, [this.quadAt(q, u0, v0), this.quadAt(q, u0 + 0.15, v0 + 0.1), this.quadAt(q, u0 + 0.05, v0 + 0.3)]);
+      }
+      for (let k = 0; k < 5; k++) {
+        const tw = Math.max(0, Math.sin(this.time * 2.2 + seed + k * 2.7));
+        if (tw < 0.4) continue;
+        const [x, y] = this.quadAt(q, (noise(seed + k * 17) + 1) / 2, (noise(seed + k * 19) + 1) / 2);
+        ctx.fillStyle = `rgba(230,250,255,${tw * a * 0.9})`;
+        ctx.fillRect(x - 1, y - 1, 2, 2);
+      }
+    } else {
+      for (let k = 0; k < 2; k++) {
+        const [x, y] = this.quadAt(q, (noise(seed + k * 7) + 1) / 2, (noise(seed + k * 9) + 1) / 2);
+        const r = Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]) * (0.12 + Math.abs(noise(seed + k)) * 0.15);
+        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+        g.addColorStop(0, `rgba(96,52,32,${0.35 * a})`);
+        g.addColorStop(1, 'rgba(96,52,32,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      }
+      if (!isFloor) {
+        ctx.fillStyle = `rgba(140,133,116,${0.5 * a})`;
+        for (let k = 0; k < 7; k++) {
+          const [x, y] = this.quadAt(q, 0.12 + k * 0.125, 0.5);
+          ctx.fillRect(x - 0.8, y - 0.8, 1.6, 1.6);
+        }
+      } else if (noise(seed) > 0.4) {
+        // a strip of worn hazard paint
+        ctx.fillStyle = `rgba(227,163,59,${0.12 * a})`;
+        for (let k = 0; k < 6; k++) {
+          fillPoly(ctx, [this.quadAt(q, k / 6, 0.45), this.quadAt(q, k / 6 + 0.07, 0.45), this.quadAt(q, k / 6 + 0.1, 0.55), this.quadAt(q, k / 6 + 0.03, 0.55)]);
+        }
+      }
+    }
+    ctx.restore();
+  }
+
+  /** Jagged copy of a polygon: each edge split, points pushed in or out. */
+  private jag(pts: Pt[], seed: number, amp: number): Pt[] {
+    const out: Pt[] = [];
+    const cx = this.cx;
+    const cy = this.cy;
+    pts.forEach((a, k) => {
+      const b = pts[(k + 1) % pts.length];
+      for (let s = 0; s < 3; s++) {
+        const t = s / 3;
+        const x = a[0] + (b[0] - a[0]) * t;
+        const y = a[1] + (b[1] - a[1]) * t;
+        const d = Math.hypot(x - cx, y - cy) || 1;
+        const n = noise(seed + k * 3 + s) * amp;
+        out.push([x + ((x - cx) / d) * n, y + ((y - cy) / d) * n]);
+      }
+    });
+    return out;
+  }
+
+  /** A natural rock arch with crystals growing from it, in place of a bulkhead. */
+  private drawRockArch(z: number, sd: number, lampOn: boolean, hidden: boolean) {
+    const { ctx } = this;
+    const bio = this.biome;
+    const u = this.unit(z);
+    const fog = this.fog(z);
+    const inner = this.jag(this.octagon(z), sd, u * 0.06);
+    const outer = this.jag(this.octagon(z, 1.35), sd + 50, u * 0.14);
+    ctx.beginPath();
+    outer.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+    inner.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+    ctx.fillStyle = mix(bio.ring[sd % 3 === 1 ? 0 : 1], INK.void, hidden ? 0.8 : fog);
+    ctx.fill('evenodd');
+    ctx.strokeStyle = INK.bone;
+    ctx.globalAlpha = (1 - fog * 0.9) * (hidden ? 0.25 : 0.9);
+    ctx.lineWidth = Math.max(1, u * 0.009);
+    sketchStroke(ctx, inner, sd + this.boil, 1.4, true);
+    ctx.globalAlpha = 1;
+    if (hidden) return;
+    // crystals growing inward from the arch's top and upper sides
+    for (let k = 0; k < 5; k++) {
+      if (noise(sd + k * 7) < -0.3) continue;
+      const p = inner[Math.floor(((k + 0.5) / 5) * inner.length * 0.45 + inner.length * 0.8) % inner.length];
+      const ang = Math.atan2(this.cy - p[1], this.cx - p[0]) + noise(sd + k) * 0.4;
+      this.drawShard(p[0], p[1], u * (0.12 + Math.abs(noise(sd + k * 3)) * 0.18), ang, u * 0.06, fog, sd + k * 13);
+    }
+    if (lampOn) {
+      const top = inner[Math.floor(inner.length * 0.03)];
+      const lx = this.cx;
+      const ly = top[1];
+      const r = u * 0.9;
+      const grd = ctx.createRadialGradient(lx, ly, 0, lx, ly, r);
+      grd.addColorStop(0, `rgba(${bio.glow},0.3)`);
+      grd.addColorStop(1, `rgba(${bio.glow},0)`);
+      ctx.fillStyle = grd;
+      ctx.fillRect(lx - r, ly - r * 0.2, r * 2, r * 1.2);
+    }
+  }
+
+  /** A cliff face around a tunnel mouth, when stepping from a cavern into a tunnel. */
+  private drawCliff(z: number, sd: number, hidden: boolean) {
+    const { ctx } = this;
+    const bio = this.biome;
+    const u = this.unit(z);
+    const fog = this.fog(z);
+    const fy = this.floorY(z);
+    const half = (this.W * 1.4) / z;
+    const topY = this.cy - u * 1.9;
+    const cliff: Pt[] = [[this.cx - half, fy]];
+    for (let k = 0; k <= 14; k++) {
+      const x = this.cx - half + (k / 14) * half * 2;
+      cliff.push([x, topY + Math.abs(noise(sd + k * 3)) * u * 0.5]);
+    }
+    cliff.push([this.cx + half, fy]);
+    const hole = this.jag(this.octagon(z, 1.3), sd + 50, u * 0.14);
+    ctx.beginPath();
+    cliff.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+    hole.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+    ctx.fillStyle = mix(bio.ring[1], INK.void, hidden ? 0.85 : fog * 0.8);
+    ctx.fill('evenodd');
+    if (hidden) return;
+    const box: Pt[] = [[this.cx - half, topY], [this.cx + half, topY], [this.cx + half, fy], [this.cx - half, fy]];
+    ctx.save();
+    ctx.beginPath();
+    cliff.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+    hole.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+    ctx.clip('evenodd');
+    this.textureQuad(box, sd + 3, fog, false);
+    ctx.restore();
+    ctx.strokeStyle = INK.bone;
+    ctx.globalAlpha = 0.45 * (1 - fog);
+    sketchStroke(ctx, cliff.slice(1, -1), sd + this.boil, 1.5, false);
+    ctx.globalAlpha = 1;
+    for (const side of [-1, 1]) this.drawSpire(this.cx + side * u * 1.05, fy, u, side, sd + side * 41, fog);
+  }
+
+  /** Lab: an observation window set into a wall, with stars and a slice of planet outside. */
+  private drawWindow(a: Pt[], b: Pt[], sd: number, fog: number) {
+    const { ctx } = this;
+    const k = sd % 2 ? 2 : 6;
+    const q: Pt[] = [a[k], a[(k + 1) % 8], b[(k + 1) % 8], b[k]];
+    const inset: Pt[] = [this.quadAt(q, 0.12, 0.18), this.quadAt(q, 0.88, 0.18), this.quadAt(q, 0.88, 0.82), this.quadAt(q, 0.12, 0.82)];
+    const [x0, y0] = inset[0];
+    const [x1, y1] = inset[2];
+    ctx.save();
+    ctx.beginPath();
+    inset.forEach(([x, y], n) => (n ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+    ctx.clip();
+    const g = ctx.createLinearGradient(x0, y0, x1, y1);
+    g.addColorStop(0, '#02030a');
+    g.addColorStop(1, '#0b1030');
+    ctx.fillStyle = g;
+    ctx.fillRect(Math.min(x0, x1) - 50, Math.min(y0, y1) - 50, Math.abs(x1 - x0) + 100, Math.abs(y1 - y0) + 100);
+    for (let s = 0; s < 22; s++) {
+      const [x, y] = this.quadAt(inset, (noise(sd + s * 3) + 1) / 2, (noise(sd + s * 5) + 1) / 2);
+      const tw = 0.5 + 0.5 * Math.sin(this.time * 1.7 + s);
+      ctx.fillStyle = `rgba(230,235,255,${(0.4 + tw * 0.5) * (1 - fog)})`;
+      ctx.fillRect(x, y, 1.4, 1.4);
+    }
+    const [px, py] = this.quadAt(inset, 0.75, 1.05);
+    const pr = Math.hypot(inset[1][0] - inset[0][0], inset[1][1] - inset[0][1]) * 0.7;
+    const pg = ctx.createRadialGradient(px - pr * 0.3, py - pr * 0.3, 0, px, py, pr);
+    pg.addColorStop(0, '#6a4b7a');
+    pg.addColorStop(0.7, '#2a1c3a');
+    pg.addColorStop(1, '#0b0714');
+    ctx.fillStyle = pg;
+    ctx.beginPath();
+    ctx.arc(px, py, pr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = INK.bone;
+    ctx.globalAlpha = 0.9 * (1 - fog);
+    ctx.lineWidth = 2;
+    sketchStroke(ctx, inset, sd + this.boil, 1, true);
+    ctx.globalAlpha = 0.18 * (1 - fog);
+    sketchStroke(ctx, [this.quadAt(inset, 0.2, 0.1), this.quadAt(inset, 0.45, 0.9)], sd + 9, 1);
+    ctx.globalAlpha = 1;
+  }
+
+  /** Lab: an old growth vat, cracked, with something curled up inside. */
+  private drawVat(x: number, fy: number, u: number, fog: number, sd: number) {
+    const { ctx } = this;
+    const w = u * 0.26;
+    const h = u * 1.1;
+    const top = fy - h;
+    ctx.fillStyle = mix('#1f3526', INK.void, fog);
+    ctx.beginPath();
+    ctx.roundRect(x - w / 2, top, w, h, w / 3);
+    ctx.fill();
+    ctx.fillStyle = `rgba(127,212,138,${0.18 * (1 - fog)})`;
+    ctx.fillRect(x - w / 2, top + h * (0.25 + Math.abs(noise(sd)) * 0.2), w, h * 0.7);
+    const bob = Math.sin(this.time * 0.6 + sd) * u * 0.015;
+    ctx.fillStyle = mix('#5e7a64', INK.void, fog + 0.2);
+    ctx.beginPath();
+    ctx.ellipse(x, top + h * 0.45 + bob, w * 0.16, w * 0.18, 0, 0, Math.PI * 2);
+    ctx.ellipse(x + w * 0.03, top + h * 0.62 + bob, w * 0.2, h * 0.14, 0.3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = INK.bone;
+    ctx.globalAlpha = 0.7 * (1 - fog);
+    ctx.lineWidth = Math.max(1, u * 0.008);
+    sketchStroke(ctx, [[x - w / 2, top + w / 3], [x - w / 2, fy]], sd + this.boil, 1);
+    sketchStroke(ctx, [[x + w / 2, top + w / 3], [x + w / 2, fy]], sd + 3 + this.boil, 1);
+    sketchStroke(ctx, [[x - w * 0.3, top + h * 0.2], [x - w * 0.05, top + h * 0.35], [x - w * 0.2, top + h * 0.5]], sd + 7, 0.6);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = mix('#35322e', INK.void, fog);
+    ctx.fillRect(x - w * 0.62, top - u * 0.04, w * 1.24, u * 0.07);
+    ctx.fillRect(x - w * 0.62, fy - u * 0.05, w * 1.24, u * 0.05);
   }
 
   private lampOn(i: number) {
@@ -665,7 +1191,7 @@ export class Stage {
     ctx.fillRect(this.cx - r, gy - r, r * 2, r * 1.2);
   }
 
-  private drawShard(x: number, y: number, len: number, angle: number, w: number, fog: number, seed: number) {
+  private drawShard(x: number, y: number, len: number, angle: number, w: number, fog: number, seed: number, solid = false) {
     const { ctx } = this;
     const dx = Math.cos(angle);
     const dy = Math.sin(angle);
@@ -679,6 +1205,13 @@ export class Stage {
       [x - px * w * 0.5, y - py * w * 0.5],
     ];
     const pulse = 0.5 + 0.5 * Math.sin(this.time * 1.3 + seed);
+    if (solid) {
+      // an opaque body, lit on one facet, so the structure blocks what is behind it
+      ctx.fillStyle = mix('#1b3a48', INK.void, fog);
+      fillPoly(ctx, pts);
+      ctx.fillStyle = `rgba(${this.biome.glow},${(0.1 + pulse * 0.08) * (1 - fog)})`;
+      fillPoly(ctx, [pts[0], pts[1], pts[2], [x, y]]);
+    }
     ctx.fillStyle = `rgba(${this.biome.glow},${(0.18 + pulse * 0.12) * (1 - fog)})`;
     fillPoly(ctx, pts);
     ctx.strokeStyle = mix('#d6f6fb', INK.void, fog);
