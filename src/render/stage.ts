@@ -1291,7 +1291,7 @@ export class Stage {
     if (lampOn && !hidden) {
       const r = this.unit(z) * 0.9;
       const grd = ctx.createRadialGradient(lx, ly, 0, lx, ly, r);
-      grd.addColorStop(0, `rgba(${bio.glow},0.22)`);
+      grd.addColorStop(0, `rgba(${bio.glow},0.14)`);
       grd.addColorStop(1, `rgba(${bio.glow},0)`);
       ctx.fillStyle = grd;
       ctx.fillRect(lx - r, ly - r * 0.2, r * 2, r * 1.2);

@@ -69,37 +69,35 @@ void main() {
   // the colour plate is printed a hair off-register
   vec3 cc = texture2D(tex, uv + vec2(1.6, -1.1) * dpr / res).rgb;
 
-  // Key plate: lift the dark scene, then crush it into ink / screen / paper.
+  // Tone: the scene keeps its continuous shading, remapped onto ink → paper,
+  // so near and far layers stay apart by value. Dots are only a light texture on top.
   float L = dot(c, vec3(0.299, 0.587, 0.114));
-  float v = clamp((L - 0.03) / 0.26, 0.0, 1.0);
-  float cover = 1.0 - v;
-  float d = screen(px, 0.785, 4.6 * dpr);
-  float aa = 1.2 / (4.6 * dpr);
-  float ink = 1.0 - smoothstep(sqrt(cover) - aa, sqrt(cover) + aa, d);
-  ink = mix(ink, 1.0, smoothstep(0.86, 0.94, cover));
-  // bright strokes stay solid paper, never dotted
-  ink = mix(ink, 0.0, smoothstep(0.5, 0.62, v));
-
-  // Colour plate: saturated, reasonably bright areas become a spot-ink screen.
-  float mx = max(cc.r, max(cc.g, cc.b));
-  float mn = min(cc.r, min(cc.g, cc.b));
-  // absolute chroma, so dark near-greys stay neutral and only real colour prints in spot ink
-  float cv = smoothstep(0.04, 0.22, mx - mn);
-  float cd = screen(px + 1.3, 0.26, 3.6 * dpr);
-  float caa = 1.2 / (3.6 * dpr);
-  float colr = 1.0 - smoothstep(sqrt(cv) - caa, sqrt(cv) + caa, cd);
-  colr = mix(colr, 1.0, smoothstep(0.8, 0.95, cv));
-
-  // Paper with fibres and uneven ink.
+  float v = clamp((L - 0.02) / 0.5, 0.0, 1.0);
+  v = v * v * (3.0 - 2.0 * v); // a gentle S-curve: firmer blacks and whites
   vec2 gp = mod(px / dpr, 512.0);
   float grain = vnoise(gp / 1.5) * 0.6 + vnoise(gp / 7.0) * 0.4;
-  vec3 paper = PAPER * (0.93 + 0.07 * grain);
-  vec3 col = mix(paper, spot(cc) * (0.92 + 0.08 * grain), colr);
-  // colour under ink shows a little, like overprinted inks
-  vec3 inkCol = mix(INK, INK * 0.6 + spot(cc) * 0.25, colr * 0.35);
-  // a few specks of paper showing through the ink
-  float speck = step(0.994, hash(floor(gp / 1.5)));
-  col = mix(col, inkCol, clamp(ink - speck, 0.0, 1.0));
+  vec3 paper = PAPER * (0.94 + 0.06 * grain);
+  vec3 tone = mix(INK, paper, v);
+
+  // Colour: real colour is pulled toward its nearest spot ink, keeping its value.
+  float mx = max(cc.r, max(cc.g, cc.b));
+  float mn = min(cc.r, min(cc.g, cc.b));
+  float cv = smoothstep(0.05, 0.25, mx - mn);
+  vec3 ink2 = spot(cc);
+  float lift = clamp(mx * 1.6, 0.0, 1.0);
+  vec3 col = mix(tone, mix(INK, ink2, lift), cv * 0.85);
+
+  // Halftone texture, fine and faint, strongest in the mid-tones.
+  float cover = 1.0 - v;
+  float d = screen(px, 0.785, 3.0 * dpr);
+  float aa = 1.2 / (3.0 * dpr);
+  float dots = 1.0 - smoothstep(sqrt(cover) - aa, sqrt(cover) + aa, d);
+  float mid = 4.0 * v * (1.0 - v);
+  col = mix(col, mix(paper, INK, dots), 0.16 * mid);
+
+  // a few specks of paper showing through the darkest ink
+  float speck = step(0.996, hash(floor(gp / 1.5))) * (1.0 - v);
+  col = mix(col, paper, speck * 0.6);
   gl_FragColor = vec4(col, 1.0);
 }`;
 
