@@ -4,6 +4,11 @@ import { FORCE_COST, Game, MAX_OXYGEN, freshMeta, type GameEvent } from '../core
 import type { CardInstance, DeckKind, EnemyState, MapNode, Meta } from '../core/types';
 import { BOONS, EVENTS, LOGS, MAP_ROWS, WORLDS, WORLD_ORDER } from '../core/worlds';
 import { PASSAGE_SPREAD, Stage, enemySlot, passageSlot } from '../render/stage';
+import { cardArt, cardArtDefs } from './cardart';
+
+/** How long a card takes to print into the hand, and the gap between cards. */
+const PRINT_MS = 560;
+const PRINT_STAGGER = 110;
 
 const CLONE_KEY = 'reprint.clone';
 const INTRO_KEY = 'reprint.introSeen';
@@ -100,6 +105,9 @@ export class App {
   private meta: Meta;
   /** The node map is a view-only overlay, opened on demand. */
   private mapOpen = false;
+  /** When each card in hand started printing (performance.now), and the hand shown last time. */
+  private printStart = new Map<number, number>();
+  private lastHand = new Set<number>();
 
   constructor(root: HTMLElement) {
     root.innerHTML = `
@@ -115,7 +123,8 @@ export class App {
       </main>
       <section class="dock"></section>
       <div class="sheet" hidden></div>
-      <div class="hintbubble" role="tooltip" aria-live="polite" hidden></div>`;
+      <div class="hintbubble" role="tooltip" aria-live="polite" hidden></div>
+      ${cardArtDefs()}`;
     this.hud = root.querySelector('.hud')!;
     this.sectorline = root.querySelector('.sectorline')!;
     this.track = root.querySelector('.track')!;
@@ -582,7 +591,10 @@ export class App {
       </button>`;
   }
 
-  private cardHtml(card: CardInstance, opts: { big?: boolean; dim?: boolean; act?: string; extra?: string } = {}): string {
+  private cardHtml(
+    card: CardInstance,
+    opts: { big?: boolean; dim?: boolean; act?: string; extra?: string; print?: number } = {},
+  ): string {
     const def = cardDef(card);
     const s = this.game.displayStats(card);
     const lvl = cardLevel(card);
@@ -590,13 +602,16 @@ export class App {
     const cls = [
       'card', def.deck, lvl > 0 ? 'evolved' : '', buffed ? 'buffed' : '', opts.big ? 'big' : '',
       this.selected === card.uid ? 'selected' : '', opts.dim ? 'dim' : '',
+      opts.print !== undefined ? 'printing' : '',
     ].filter(Boolean).join(' ');
+    // a card re-rendered mid-print carries on where it was (negative delay)
+    const style = opts.print !== undefined ? `style="--pd:${Math.round(-opts.print)}ms"` : '';
     const genes = lvl > 0 ? `<span class="genes" data-hint="genes" title="${lvl} genes">${'<i></i>'.repeat(Math.min(lvl, 8))}</span>` : '';
     const flavor = opts.big ? `<span class="flavor">${esc(def.flavor)}</span>` : '';
     return `
-      <button class="${cls}" data-act="${opts.act ?? 'card'}" data-uid="${card.uid}" ${opts.extra ?? ''}>
+      <button class="${cls}" data-act="${opts.act ?? 'card'}" data-uid="${card.uid}" ${style} ${opts.extra ?? ''}>
+        ${cardArt(def.id)}
         <span class="cost" data-hint="cost" aria-label="cost">${s.cost}</span>
-        <span class="glyph" aria-hidden="true">${def.glyph}</span>
         <span class="name">${esc(cardName(card))}</span>
         <span class="text">${cardText(card, s).join(' ')}</span>
         ${flavor}
@@ -611,11 +626,14 @@ export class App {
       this.dock.innerHTML = this.empowerHtml(g.combat.pendingEmpower.amount);
       return;
     }
+    this.trackPrinting(
+      g.phase === 'combat' ? (g.combat?.hand ?? []) : g.phase === 'map' || g.phase === 'explore' ? g.sHand : [],
+    );
     let hand = '';
     let bar = '';
     if (g.phase === 'map') {
       hand = g.sHand.length
-        ? g.sHand.map((c) => this.cardHtml(c, { dim: !!g.surveyPlayable(c) })).join('')
+        ? g.sHand.map((c) => this.cardHtml(c, { dim: !!g.surveyPlayable(c), print: this.printFor(c.uid) })).join('')
         : '<p class="empty">no survey cards in hand</p>';
       const pips = Array.from({ length: MAX_OXYGEN }, (_, i) => `<i class="${i < g.oxygen ? 'on' : ''}"></i>`).join('');
       bar = `
@@ -626,7 +644,7 @@ export class App {
         ${this.mapOpen ? '' : '<span class="maphint">tap a passage ▲</span>'}`;
     } else if (g.phase === 'explore') {
       hand = g.sHand.length
-        ? g.sHand.map((c) => this.cardHtml(c, { dim: !!g.surveyPlayable(c) })).join('')
+        ? g.sHand.map((c) => this.cardHtml(c, { dim: !!g.surveyPlayable(c), print: this.printFor(c.uid) })).join('')
         : '<p class="empty">no survey cards in hand</p>';
       const blocked = g.blocker();
       const pips = Array.from({ length: MAX_OXYGEN }, (_, i) => `<i class="${i < g.oxygen ? 'on' : ''}"></i>`).join('');
@@ -642,7 +660,7 @@ export class App {
     } else if (g.phase === 'combat' && g.combat) {
       const c = g.combat;
       hand = c.hand.length
-        ? c.hand.map((card) => this.cardHtml(card, { dim: !!g.combatPlayable(card) })).join('')
+        ? c.hand.map((card) => this.cardHtml(card, { dim: !!g.combatPlayable(card), print: this.printFor(card.uid) })).join('')
         : '<p class="empty">hand empty</p>';
       const pips = Array.from({ length: c.energyCap }, (_, i) => `<i class="${i < c.energy ? 'on' : ''}"></i>`).join('');
       let res = '';
@@ -666,6 +684,25 @@ export class App {
       <p class="hint">${g.message || '&nbsp;'}</p>
       <div class="hand">${hand}</div>
       <div class="bar">${bar}</div>`;
+  }
+
+  /** Cards new to the hand start printing, one after another. */
+  private trackPrinting(hand: CardInstance[]) {
+    const now = performance.now();
+    let k = 0;
+    for (const c of hand) {
+      if (!this.lastHand.has(c.uid)) this.printStart.set(c.uid, now + PRINT_STAGGER * k++);
+    }
+    this.lastHand = new Set(hand.map((c) => c.uid));
+    for (const [uid, t] of this.printStart) if (now - t > PRINT_MS || !this.lastHand.has(uid)) this.printStart.delete(uid);
+  }
+
+  /** Milliseconds into its print (negative: still waiting), or undefined once printed. */
+  private printFor(uid: number): number | undefined {
+    const t = this.printStart.get(uid);
+    if (t === undefined) return undefined;
+    const elapsed = performance.now() - t;
+    return elapsed > PRINT_MS ? undefined : elapsed;
   }
 
   private empowerHtml(amount: number): string {

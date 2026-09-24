@@ -1776,3 +1776,95 @@ body {
   color: var(--paper);
   text-shadow: 0 0 2px var(--ink), 1px 1px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink);
 }
+
+/* ---------------------------------------------------------- card plates */
+
+.card .art {
+  display: block;
+  flex: none;
+  width: calc(100% + 10px);
+  margin: -6px -5px 2px;
+  aspect-ratio: 5 / 3;
+  height: auto;
+  border-bottom: 2px solid var(--ink);
+}
+
+.card.big .art {
+  width: calc(100% + 18px);
+  margin: -10px -9px 4px;
+}
+
+.card .glyph {
+  display: none;
+}
+
+.card .cost,
+.card.big .cost {
+  z-index: 1;
+  box-shadow: 1.5px 1.5px 0 var(--ink);
+}
+
+.card .name,
+.card.big .name {
+  margin-top: 0;
+}
+
+.card.dim .art {
+  filter: grayscale(1) contrast(0.9);
+}
+
+/* ------------------------------------------------ printing into the hand
+   The card builds up from the top in hard steps, a glowing print head riding the edge. */
+
+.card.printing {
+  animation: card-print 560ms steps(14, end) var(--pd, 0ms) both;
+}
+
+.card.printing::after {
+  content: '';
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  height: 3px;
+  background: var(--sodium);
+  box-shadow: 0 0 8px 2px rgba(238, 164, 35, 0.8);
+  z-index: 3;
+  pointer-events: none;
+  animation: card-head 560ms steps(14, end) var(--pd, 0ms) both;
+}
+
+@keyframes card-print {
+  from {
+    clip-path: inset(0 -6px 100% -6px);
+  }
+  to {
+    clip-path: inset(0 -6px -6px -6px);
+  }
+}
+
+@keyframes card-head {
+  0% {
+    top: -3px;
+    opacity: 1;
+  }
+  96% {
+    opacity: 1;
+  }
+  100% {
+    top: calc(100% - 3px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card.printing,
+  .card.printing::after {
+    animation: none;
+  }
+}
+
+.grid .card {
+  aspect-ratio: auto;
+  max-height: none;
+  min-height: 150px;
+}
