@@ -1070,9 +1070,9 @@ export class Game {
     if (s.exposed > 0) s.exposed--;
   }
 
+  /** One hit on the player. Plating cuts every single hit by its full value, and is not used up. */
   private damagePlayer(amount: number) {
     const blocked = Math.min(this.playerBlock, amount);
-    this.playerBlock -= blocked;
     const taken = amount - blocked;
     this.hp -= taken;
     this.emit({ type: 'playerHit', amount: taken, blocked });

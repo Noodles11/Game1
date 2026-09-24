@@ -732,3 +732,20 @@ describe('landscapes', () => {
     expect(tunnels).toBeGreaterThan(5);
   });
 });
+
+describe('plating', () => {
+  it('cuts every single hit and is not used up', () => {
+    const g = new Game(1);
+    fightIn(g, ['shardling']);
+    const hit = (n: number) => (g as unknown as { damagePlayer(a: number): void }).damagePlayer(n);
+    g.playerBlock = 5;
+    const hp = g.hp;
+    hit(3);
+    hit(3);
+    expect(g.hp).toBe(hp);
+    expect(g.playerBlock).toBe(5);
+    hit(7);
+    hit(7);
+    expect(g.hp).toBe(hp - 4);
+  });
+});

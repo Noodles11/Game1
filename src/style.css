@@ -280,6 +280,16 @@ button:focus-visible {
   letter-spacing: 0.08em;
 }
 
+.intent .atk s {
+  opacity: 0.5;
+  margin-right: 3px;
+  font-weight: 400;
+}
+
+.intent .atk.nil {
+  opacity: 0.55;
+}
+
 .intent .atk {
   color: var(--flesh);
   font-weight: 600;

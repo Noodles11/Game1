@@ -41,7 +41,7 @@ const HINTS: Record<string, string> = {
   biomass: 'Biomass — harvested from the dead. Eat it to heal, or spend it at a splice pod to evolve a card.',
   energy: 'Energy — spend it to play Tactics cards. Refills at the start of every combat turn.',
   oxygen: 'Oxygen — spend it to play Survey cards. Refills each time you act while exploring.',
-  plate: 'Plating — absorbs damage before it reaches integrity. Clears at the start of your next turn.',
+  plate: 'Plating — your plating cuts every single hit by its value and is not used up: with 5 plating, a 3×2 attack deals nothing and 7×2 deals 2×2. Enemy plating soaks damage until it is spent. Both clear at the start of the next turn.',
   weak: 'Weaken — deals 25% less damage while it lasts. Fades by 1 each turn.',
   exposed: 'Exposed — takes 50% more damage from everything. Fades by 1 each turn.',
   tag: 'Tagged — kill it while tagged and its biomass yields double when harvested.',
@@ -552,7 +552,10 @@ export class App {
     const parts: string[] = [`<b>${intent.label}</b>`];
     if (intent.attack) {
       const hits = intent.hits && intent.hits > 1 ? `×${intent.hits}` : '';
-      parts.push(`<span class="atk">${g.intentDamage(e)}${hits}</span>`);
+      const dmg = g.intentDamage(e);
+      const net = Math.max(0, dmg - g.playerBlock);
+      const shown = net < dmg ? `<s>${dmg}</s>${net}` : `${dmg}`;
+      parts.push(`<span class="atk${net === 0 ? ' nil' : ''}" data-hint="plate">${shown}${hits}</span>`);
     }
     if (intent.block) parts.push(`<span class="blk" data-hint="plate">▢${intent.block}</span>`);
     if (intent.strength) parts.push(`<span class="dbf" data-hint="strength">+${intent.strength} str</span>`);
