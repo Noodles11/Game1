@@ -1,7 +1,7 @@
 # Worlds, Mobs & Structure — Design Plan
 
-Status: **proposal, awaiting sign-off.** Nothing here is built yet.
-Builds on the live game (the lab ship, 2 sectors, ending at The First).
+Status: **M1 and M2 shipped.** Mainframe, world select, node map, permanent boons and Kessra are live.
+Mireth, Orun and Origin are still proposals (M3–M5).
 
 ---
 
@@ -35,8 +35,7 @@ LAB SHIP (linear, 2 sectors)          ~12 min
 - Death: full reset. Back to the lab, next clone number.
 - Clear all 3 worlds (across runs) → the mainframe shows a 4th destination: **Origin**.
 
-**Lab shortcut (proposed):** once you've beaten The First, later runs can skip sector 1.
-That keeps replays inside 30 minutes. Decision needed, see §9.
+**Replays:** every run starts from the very beginning of the lab (decided). No shortcut.
 
 ---
 
@@ -218,8 +217,25 @@ Recommendation: build M1 → M2 first. That proves the whole loop end to end wit
 
 ---
 
-## 9. Decisions needed from you
+## 9. Decisions
 
-1. **Worlds** — keep Kessra / Mireth / Orun as written, or swap any theme?
-2. **Lab on replays** — always play the full lab, skip sector 1 after the first clear, or skip the whole lab and start at the mainframe?
-3. **World boss buffs** — keep the three as written, or should each world offer a choice of 2?
+1. **Worlds** — keep Kessra, Mireth and Orun as written.
+2. **Replays** — always from the very beginning of the lab.
+3. **World boss rewards** — a choice of 2 permanent boons per world. Kessra offers
+   *Crystalline Bones* (start every fight with 4 plating) or *Resonant Core*
+   (the first card of every fight resolves twice). Re-clearing a world offers whichever you
+   don't have yet.
+
+## 10. What shipped in M1 + M2, and where it differs from the plan
+
+- **Mainframe** after The First; Mireth and Orun are shown as "signal lost" until M3/M4.
+- **Node map:** 7 rows of 2–4 nodes plus the boss, always fully connected; row 3 always has a pod,
+  every map has at least one elite. Some nodes are hidden (`?`). *Echo Scan* reveals the next 2 rows,
+  *Flare* makes the next row's enemies start Exposed. The *Override shortcut* idea was dropped for now.
+- **Kessra Resonance** applies to the player only (every 3rd card each turn resolves twice).
+  The "crystals give enemies plating" half was cut; enemies get their plating from their own patterns.
+- **Prism Mother** has a second phase below 50%: she sheds Shardlings. Summoned Shardlings arrive
+  already split, so they never multiply.
+- **Elites** reward a choice of Kessra-only cards plus 6 biomass.
+- **Events:** 4 in Kessra, each with a log fragment kept forever. The 5th log comes from the boss.
+- Bug fixed along the way: combat cards with *Heal* (Graft) never actually healed. They do now.

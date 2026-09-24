@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { cardName, cardStats, cardText, genesFor, splice, spliceCost } from '../src/core/cards';
-import { FORCE_COST, Game, MAX_ENERGY } from '../src/core/game';
-import type { CardInstance } from '../src/core/types';
+import { FORCE_COST, Game, MAX_ENERGY, freshMeta } from '../src/core/game';
+import type { CardInstance, Segment } from '../src/core/types';
+import { MAP_ROWS, WORLDS, generateMap } from '../src/core/worlds';
+import { Rng } from '../src/core/rng';
 
 const card = (defId: string, genes: string[] = []): CardInstance => ({ uid: 999, defId, genes });
 
@@ -348,32 +350,345 @@ describe('save and load', () => {
   });
 });
 
-describe('full run', () => {
-  it('a greedy bot can finish or die without errors', () => {
-    for (let seed = 1; seed <= 30; seed++) {
-      const g = new Game(seed);
-      for (let guard = 0; guard < 400; guard++) {
-        if (g.phase === 'explore') {
-          const pry = g.sHand.find((c) => c.defId === 'pry' && !g.surveyPlayable(c));
-          if (pry) g.playSurvey(pry.uid);
-          else if (g.canUsePod()) g.usePod();
-          else if (g.front && !g.front.revealed) g.advance();
-          else if (g.blocker()) g.force();
-          else g.advance();
-        } else if (g.phase === 'combat') fightToEnd(g);
-        else if (g.phase === 'harvest') {
-          for (const k of g.corpses) (g.hp < 20 ? g.consume(k.uid) : g.render(k.uid));
-          g.finishHarvest();
-        } else if (g.phase === 'reward' || g.phase === 'loot') g.takeOffer(0);
-        else if (g.phase === 'modifier') g.chooseModifier('integrity');
-        else if (g.phase === 'splice') {
-          const c = g.combatDeck[0];
+/** Put the player in front of a fight with exactly these enemies, in a world. */
+function fightIn(g: Game, encounter: string[], world: string | null = 'kessra') {
+  const seg = (feature: Segment['feature'], extra: Partial<Segment> = {}): Segment => ({
+    feature, dark: false, lit: false, revealed: true, cleared: false, ...extra,
+  });
+  g.world = world;
+  g.segments = [seg('none'), seg('enemies', { encounter }), seg('exit')];
+  g.pos = 0;
+  g.phase = 'explore';
+  g.advance();
+}
+
+/** A reasonable bot: heals when low, splices, walks the map. Returns the final phase. */
+function autoplay(g: Game, guardMax = 3000): string {
+  for (let guard = 0; guard < guardMax; guard++) {
+    switch (g.phase) {
+      case 'explore': {
+        const useful = g.sHand.find((c) => ['pry', 'override', 'cut', 'scan', 'stim'].includes(c.defId) && !g.surveyPlayable(c));
+        if (useful) g.playSurvey(useful.uid);
+        else if (g.canUsePod()) g.usePod();
+        else if (g.front && !g.front.revealed) g.advance();
+        else if (g.blocker()) g.force();
+        else g.advance();
+        break;
+      }
+      case 'map': {
+        const next = g.reachable();
+        const pick = next.find((n) => n.kind === 'pod' && g.hp < g.maxHp * 0.6)
+          ?? next.find((n) => n.kind === 'event' || n.kind === 'locker')
+          ?? next[0];
+        g.travel(pick.id);
+        break;
+      }
+      case 'combat': {
+        let played = true;
+        while (played && g.phase === 'combat') {
+          played = false;
+          const hand = [...g.combat!.hand].sort((a, b) => (a.defId === 'brace' ? 1 : 0) - (b.defId === 'brace' ? 1 : 0));
+          for (const c of hand) {
+            if (g.phase !== 'combat') break;
+            const t = [...g.livingEnemies()].sort((a, b) => a.hp - b.hp)[0];
+            if (g.playCombat(c.uid, t?.uid)) played = true;
+            if (g.combat?.pendingEmpower) {
+              const target = g.combat.hand[0];
+              if (target) g.empowerTarget(target.uid); else g.skipEmpower();
+            }
+          }
+        }
+        if (g.phase === 'combat') g.endTurn();
+        break;
+      }
+      case 'harvest':
+        for (const k of g.corpses) (g.hp < g.maxHp * 0.7 ? g.consume(k.uid) : g.render(k.uid));
+        g.finishHarvest();
+        break;
+      case 'reward': case 'loot': g.takeOffer(0); break;
+      case 'modifier': g.chooseModifier('integrity'); break;
+      case 'mainframe': g.chooseWorld('kessra'); break;
+      case 'event': if (!g.chooseEventOption(1)) g.leaveEvent(); break;
+      case 'boon': g.chooseBoon(g.boonOffers[0]); break;
+      case 'splice': {
+        for (const c of g.combatDeck) {
           const o = g.offersFor(c.uid)[0];
           if (o) g.spliceCard(c.uid, o);
-          g.leavePod();
-        } else break;
+        }
+        g.leavePod();
+        break;
       }
-      expect(['won', 'dead']).toContain(g.phase);
+      default:
+        return g.phase;
     }
+  }
+  return g.phase;
+}
+
+describe('worlds: map', () => {
+  it('generates a connected map: every node reachable, every path reaches the boss', () => {
+    for (let seed = 1; seed <= 50; seed++) {
+      const map = generateMap(new Rng(seed), 'kessra');
+      const boss = map.nodes.find((n) => n.kind === 'boss')!;
+      const reached = new Set<number>();
+      const stack = map.nodes.filter((n) => n.row === 0).map((n) => n.id);
+      while (stack.length) {
+        const id = stack.pop()!;
+        if (reached.has(id)) continue;
+        reached.add(id);
+        stack.push(...map.nodes[id].next);
+      }
+      expect(reached.size).toBe(map.nodes.length);
+      for (const n of map.nodes) if (n !== boss) expect(n.next.length).toBeGreaterThan(0);
+      expect(map.nodes.some((n) => n.kind === 'elite')).toBe(true);
+      expect(map.nodes.some((n) => n.row === 3 && n.kind === 'pod')).toBe(true);
+      expect(boss.row).toBe(MAP_ROWS);
+    }
+  });
+
+  it('The First opens the mainframe; picking Kessra lands you on its map', () => {
+    const g = new Game(3);
+    g.phase = 'mainframe';
+    expect(g.chooseWorld('mireth')).toBe(false); // not built yet
+    expect(g.chooseWorld('kessra')).toBe(true);
+    expect(g.phase).toBe('map');
+    expect(g.biome).toBe('kessra');
+    expect(g.reachable().every((n) => n.row === 0)).toBe(true);
+  });
+
+  it('a node is a short corridor; walking out of it returns to the map one row deeper', () => {
+    const g = new Game(3);
+    g.phase = 'mainframe';
+    g.chooseWorld('kessra');
+    const locker = g.map!.nodes.find((n) => n.row === 0)!;
+    locker.kind = 'locker';
+    expect(g.travel(locker.id)).toBe(true);
+    expect(g.phase).toBe('explore');
+    expect(g.segments.map((s) => s.feature)).toEqual(['none', 'crate', 'exit']);
+    g.advance();
+    g.advance();
+    expect(g.phase).toBe('map');
+    expect(g.depth).toBe(1);
+    expect(g.reachable().every((n) => n.row === 1)).toBe(true);
+  });
+
+  it('Echo Scan on the map reveals hidden nodes ahead', () => {
+    const g = new Game(3);
+    g.phase = 'mainframe';
+    g.chooseWorld('kessra');
+    for (const n of g.map!.nodes) if (n.row === 1) n.hidden = true;
+    const scan = g.surveyDeck.find((c) => c.defId === 'scan')!;
+    g.sHand = [scan];
+    expect(g.playSurvey(scan.uid)).toBe(true);
+    expect(g.map!.nodes.filter((n) => n.row === 1).every((n) => !n.hidden)).toBe(true);
+  });
+
+  it('events grant a log that persists in meta, and their effect', () => {
+    const meta = freshMeta();
+    const g = new Game(3, 1, meta);
+    g.world = 'kessra';
+    g.segments = [
+      { feature: 'none', dark: false, lit: false, revealed: true, cleared: false },
+      { feature: 'event', dark: false, lit: false, revealed: true, cleared: false, eventId: 'echo-pool' },
+      { feature: 'exit', dark: false, lit: false, revealed: true, cleared: false },
+    ];
+    g.pos = 0;
+    g.phase = 'explore';
+    g.advance();
+    expect(g.phase).toBe('event');
+    expect(meta.logs).toContain('k3');
+    const before = g.combatDeck.length;
+    g.chooseEventOption(1);
+    expect(g.combatDeck.length).toBe(before + 1);
+    g.leaveEvent();
+    expect(g.phase).toBe('explore');
+  });
+});
+
+describe('worlds: Kessra mobs', () => {
+  it('Shardlings split once into two half-HP copies', () => {
+    const g = new Game(4);
+    fightIn(g, ['shardling']);
+    const [s] = g.livingEnemies();
+    s.hp = 1;
+    const scalpel: CardInstance = { uid: 7001, defId: 'scalpel', genes: [] };
+    g.combat!.hand = [scalpel];
+    g.playCombat(scalpel.uid, s.uid);
+    const kids = g.livingEnemies();
+    expect(kids.length).toBe(2);
+    expect(kids.every((k) => k.split && k.maxHp === 6)).toBe(true);
+    for (const k of kids) {
+      k.hp = 1;
+      const c: CardInstance = { uid: 7100 + k.uid, defId: 'scalpel', genes: [] };
+      g.combat!.hand = [c];
+      g.combat!.energy = 3;
+      g.playCombat(c.uid, k.uid);
+    }
+    expect(g.phase).toBe('harvest');
+    expect(g.corpses.length).toBe(3);
+  });
+
+  it('Refractor reflects half the hit while it has plating', () => {
+    const g = new Game(4);
+    fightIn(g, ['refractor']);
+    const [r] = g.livingEnemies();
+    r.block = 10;
+    const hp = g.hp;
+    const scalpel: CardInstance = { uid: 7002, defId: 'scalpel', genes: [] };
+    g.combat!.hand = [scalpel];
+    g.playCombat(scalpel.uid, r.uid);
+    expect(g.hp).toBe(hp - 3); // 6 damage, half reflected
+  });
+
+  it('Singing Geode gives its allies strength', () => {
+    const g = new Game(4);
+    fightIn(g, ['geode', 'crawler']);
+    const [geode, crawler] = g.livingEnemies();
+    geode.intentIdx = 0; // Hum
+    crawler.intentIdx = 0; // Harden, so the player takes no damage
+    g.combat!.hand = [];
+    g.endTurn();
+    expect(crawler.status.strength).toBe(2);
+    expect(geode.status.strength).toBe(0);
+  });
+
+  it('The Prism Mother turns at half health and starts summoning', () => {
+    const g = new Game(4);
+    fightIn(g, ['prism']);
+    const [p] = g.livingEnemies();
+    p.hp = 61;
+    const scalpel: CardInstance = { uid: 7003, defId: 'scalpel', genes: [] };
+    g.combat!.hand = [scalpel];
+    g.combat!.playedThisFight = 1; // keep this a single hit
+    g.playCombat(scalpel.uid, p.uid);
+    expect(p.phase2).toBe(true);
+    expect(g.intentOf(p).summon).toBe('shardling');
+    g.playerBlock = 999;
+    g.endTurn();
+    expect(g.livingEnemies().map((e) => e.defId)).toContain('shardling');
+  });
+});
+
+describe('worlds: Kessra mechanics and cards', () => {
+  it('Resonance: the 3rd card each turn resolves twice', () => {
+    const g = new Game(4);
+    fightIn(g, ['crawler']);
+    const [t] = g.livingEnemies();
+    t.hp = 999; t.maxHp = 999;
+    const cards: CardInstance[] = [1, 2, 3].map((i) => ({ uid: 7200 + i, defId: 'scalpel', genes: [] }));
+    g.combat!.hand = [...cards];
+    g.combat!.energy = 3;
+    g.playCombat(cards[0].uid, t.uid);
+    g.playCombat(cards[1].uid, t.uid);
+    expect(g.resonates()).toBe(true);
+    g.playCombat(cards[2].uid, t.uid);
+    expect(t.hp).toBe(999 - 6 * 4);
+  });
+
+  it('Crystal Skin plating survives into the next turn', () => {
+    const g = new Game(4);
+    fightIn(g, ['geode']);
+    const [geode] = g.livingEnemies();
+    geode.intentIdx = 0; // Hum — no attack
+    const skin: CardInstance = { uid: 7004, defId: 'crystalskin', genes: [] };
+    g.combat!.hand = [skin];
+    g.playCombat(skin.uid);
+    expect(g.playerBlock).toBe(6);
+    g.endTurn();
+    expect(g.playerBlock).toBe(6);
+  });
+
+  it('Shatter adds and strips the target\'s plating', () => {
+    const g = new Game(4);
+    fightIn(g, ['crawler'], null);
+    const [t] = g.livingEnemies();
+    t.block = 8;
+    const hp = t.hp;
+    const sh: CardInstance = { uid: 7005, defId: 'shatter', genes: [] };
+    g.combat!.hand = [sh];
+    g.playCombat(sh.uid, t.uid);
+    expect(t.block).toBe(0);
+    expect(t.hp).toBe(hp - (2 + 16));
+  });
+
+  it('Graft now actually heals', () => {
+    const g = new Game(4);
+    fightIn(g, ['crawler'], null);
+    g.hp = 20;
+    const graft: CardInstance = { uid: 7006, defId: 'graft', genes: [] };
+    g.combat!.hand = [graft];
+    g.playCombat(graft.uid, g.livingEnemies()[0].uid);
+    expect(g.hp).toBe(22);
+  });
+});
+
+describe('worlds: boons', () => {
+  it('killing the boss offers 2 permanent boons; the pick persists in meta', () => {
+    const meta = freshMeta();
+    const g = new Game(4, 1, meta);
+    fightIn(g, ['prism']);
+    g.segments[g.pos].worldBoss = true;
+    g.livingEnemies()[0].hp = 1;
+    const c: CardInstance = { uid: 7007, defId: 'scalpel', genes: [] };
+    g.combat!.hand = [c];
+    g.playCombat(c.uid, g.livingEnemies()[0].uid);
+    for (const k of g.livingEnemies()) k.hp = 0;
+    // shardlings the boss may have shed are irrelevant here: force the win
+    if (g.phase === 'combat') { g.combat!.enemies.forEach((e) => { e.alive = false; }); }
+    g.finishHarvest();
+    g.phase = 'reward';
+    g.takeOffer(null);
+    expect(g.phase).toBe('boon');
+    expect(g.boonOffers).toEqual(WORLDS.kessra.boons);
+    g.chooseBoon('crystal-bones');
+    expect(g.phase).toBe('won');
+    expect(meta.boons).toEqual(['crystal-bones']);
+    expect(meta.worldsCleared).toEqual(['kessra']);
+  });
+
+  it('Crystalline Bones starts every fight plated, even on the lab ship', () => {
+    const meta = freshMeta();
+    meta.boons.push('crystal-bones');
+    const g = new Game(4, 2, meta);
+    walkToFight(g);
+    expect(g.playerBlock).toBe(4);
+  });
+
+  it('Resonant Core doubles the first card of a fight', () => {
+    const meta = freshMeta();
+    meta.boons.push('resonant-core');
+    const g = new Game(4, 2, meta);
+    fightIn(g, ['crawler'], null);
+    const [t] = g.livingEnemies();
+    const hp = t.hp;
+    const c: CardInstance = { uid: 7008, defId: 'scalpel', genes: [] };
+    g.combat!.hand = [c];
+    g.playCombat(c.uid, t.uid);
+    expect(t.hp).toBe(hp - 12);
+  });
+});
+
+describe('full run', () => {
+  it('bots play the lab and Kessra end to end without errors', () => {
+    let won = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      const g = new Game(seed);
+      const end = autoplay(g);
+      expect(['won', 'dead']).toContain(end);
+      if (end === 'won') won++;
+    }
+    expect(won).toBeGreaterThan(0);
+  });
+
+  it('a mid-map save resumes on the same map', () => {
+    const g = new Game(12);
+    g.phase = 'mainframe';
+    g.chooseWorld('kessra');
+    g.travel(g.reachable()[0].id);
+    const restored = Game.load(g.serialize())!;
+    expect(restored.world).toBe('kessra');
+    expect(restored.mapNode).toBe(g.mapNode);
+    expect(restored.map!.nodes.length).toBe(g.map!.nodes.length);
+    expect(restored.segments).toEqual(g.segments);
   });
 });

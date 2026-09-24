@@ -24,6 +24,9 @@
 | 23 | Exploration shape | Node map (branching, player-chosen path), not a single fixed corridor. |
 | 28 | Multiplayer | Local only. No online play, accounts, or leaderboards. |
 | 32 | Saves | Browser storage (localStorage). No accounts, no cloud. |
+| — | Worlds | Keep Kessra, Mireth, Orun. |
+| — | Replays | Every run starts from the very beginning of the lab. |
+| — | World boss reward | A choice of 2 permanent boons. |
 
 ## Roadmap this unlocks
 

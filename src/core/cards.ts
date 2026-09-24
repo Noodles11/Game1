@@ -15,6 +15,10 @@ const EMPTY: CardStats = {
   biomass: 0,
   empower: 0,
   drain: 0,
+  chain: 0,
+  shatter: 0,
+  retain: false,
+  swarm: 0,
 };
 
 export const CARDS: Record<string, CardDef> = {
@@ -83,6 +87,28 @@ export const CARDS: Record<string, CardDef> = {
     id: 'siphon', name: 'Siphon Blade', deck: 'combat', glyph: '⟠',
     base: { cost: 2, damage: 9, drain: 50 },
     flavor: 'Half of what it takes, it gives back to you.',
+  },
+
+  // ---- Kessra (Glass Caves) ----
+  resonant: {
+    id: 'resonant', name: 'Resonant Strike', deck: 'combat', glyph: '≀',
+    base: { cost: 1, damage: 5, chain: 1 },
+    flavor: 'Hit it twice. The cave hits it a third time.',
+  },
+  shatter: {
+    id: 'shatter', name: 'Shatter', deck: 'combat', glyph: '✧',
+    base: { cost: 2, damage: 2, shatter: 2 },
+    flavor: 'The harder the shell, the louder it breaks.',
+  },
+  crystalskin: {
+    id: 'crystalskin', name: 'Crystal Skin', deck: 'combat', glyph: '◇',
+    base: { cost: 1, block: 6, retain: true },
+    flavor: 'It grows over the wound and does not leave.',
+  },
+  splitlens: {
+    id: 'splitlens', name: 'Split Lens', deck: 'combat', glyph: '⟁',
+    base: { cost: 1, damage: 3, aoe: true, swarm: 1 },
+    flavor: 'One beam in. Many beams out.',
   },
 
   // ---- Survey deck ----
@@ -190,6 +216,11 @@ export const GENES: Record<string, Gene> = {
     id: 'overclock', name: 'Overclock', prefix: 'Overclocked', deck: 'combat', cost: 6,
     text: 'On hit, empower another card +2', canApply: (s) => s.damage > 0, apply: (s) => { s.empower += 2; },
   },
+  faceted: {
+    id: 'faceted', name: 'Faceted', prefix: 'Faceted', deck: 'combat', cost: 6,
+    text: '+1 hit, −2 damage', canApply: (s) => s.damage >= 4 && s.hits < 4,
+    apply: (s) => { s.hits += 1; s.damage -= 2; },
+  },
   leech: {
     id: 'leech', name: 'Leech', prefix: 'Leeching', deck: 'combat', cost: 5,
     text: '+25% damage dealt as biomass', canApply: (s) => s.damage > 0, apply: (s) => { s.drain += 25; },
@@ -264,7 +295,10 @@ export function cardText(card: CardInstance, statsOverride?: CardStats): string[
     const hits = s.hits > 1 ? ` ×${s.hits}` : '';
     lines.push(`Deal ${s.damage}${hits}${s.aoe ? ' to ALL' : ''}.`);
   }
-  if (s.block > 0) lines.push(`Plate ${s.block}.`);
+  if (s.shatter > 0) lines.push(`+${s.shatter}× target's plating, then strip it.`);
+  if (s.chain > 0) lines.push(`+${s.chain} hit if your last card was an attack.`);
+  if (s.swarm > 0) lines.push(`+${s.swarm} hit if 2+ enemies.`);
+  if (s.block > 0) lines.push(s.retain ? `Plate ${s.block}. It lasts into next turn.` : `Plate ${s.block}.`);
   if (s.tag > 0) lines.push(`Tag ${s.tag}.`);
   if (s.weak > 0) lines.push(`Weaken ${s.weak}.`);
   if (s.exposed > 0) lines.push(def.deck === 'survey' ? `Foes there: Expose ${s.exposed}.` : `Expose ${s.exposed}.`);

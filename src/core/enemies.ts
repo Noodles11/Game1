@@ -87,4 +87,79 @@ export const ENEMIES: Record<string, EnemyDef> = {
       { label: 'Dirge', weak: 2, exposed: 1, line: 'you are the same meat' },
     ],
   },
+
+  // ---- Kessra (Glass Caves) ----
+  shardling: {
+    id: 'shardling',
+    name: 'Shardling',
+    hp: 12,
+    biomass: 2,
+    splits: true,
+    flavor: 'A splinter that learned to walk. Break it and there are two.',
+    pattern: [
+      { label: 'Nip', attack: 5 },
+      { label: 'Skitter', attack: 3, hits: 2 },
+      { label: 'Nip', attack: 6 },
+    ],
+  },
+  crawler: {
+    id: 'crawler',
+    name: 'Lattice Crawler',
+    hp: 36,
+    biomass: 6,
+    flavor: 'It grows armour faster than you can cut it. Hit it before it finishes.',
+    pattern: [
+      { label: 'Harden', block: 8 },
+      { label: 'Grind', block: 6, attack: 8 },
+      { label: 'Crush', attack: 16 },
+    ],
+  },
+  geode: {
+    id: 'geode',
+    name: 'Singing Geode',
+    hp: 18,
+    biomass: 5,
+    flavor: 'It never attacks. It sings, and everything near it gets stronger.',
+    pattern: [
+      { label: 'Hum', allyStrength: 2, line: 'mmmmmmmmmm' },
+      { label: 'Shriek', weak: 1, exposed: 1 },
+      { label: 'Chorus', allyStrength: 2, block: 6 },
+    ],
+  },
+  refractor: {
+    id: 'refractor',
+    name: 'Refractor',
+    hp: 52,
+    biomass: 10,
+    reflect: 0.5,
+    flavor: 'A walking mirror. While it is plated, half of every blow comes back to you.',
+    pattern: [
+      { label: 'Polish', block: 12 },
+      { label: 'Lance', attack: 13 },
+      { label: 'Glare', attack: 5, hits: 2, block: 6 },
+    ],
+  },
+  prism: {
+    id: 'prism',
+    name: 'The Prism Mother',
+    hp: 150,
+    biomass: 18,
+    flavor: 'The oldest thing in the caves. Every shardling is a piece she let go of.',
+    pattern: [
+      { label: 'Refract', attack: 8, hits: 2 },
+      { label: 'Glare', weak: 2, exposed: 1, line: 'I SEE EVERY COPY OF YOU' },
+      { label: 'Prism Beam', attack: 18 },
+      { label: 'Facet', block: 14 },
+    ],
+    phase2: {
+      below: 0.5,
+      line: 'THEN BREAK. AND BREAK. AND BREAK.',
+      pattern: [
+        { label: 'Shed', summon: 'shardling', attack: 8 },
+        { label: 'Spectrum', attack: 7, hits: 3 },
+        { label: 'Shed', summon: 'shardling', block: 10 },
+        { label: 'Prism Beam', attack: 20 },
+      ],
+    },
+  },
 };

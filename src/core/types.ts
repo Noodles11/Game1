@@ -20,6 +20,14 @@ export interface CardStats {
   empower: number;
   /** Percent (0-100) of damage this card deals that also becomes biomass, immediately. */
   drain: number;
+  /** Extra hits if the previous card played this turn was an attack. */
+  chain: number;
+  /** Adds target's plating × this to the first hit, then strips that plating. */
+  shatter: number;
+  /** This card's plating survives into your next turn. */
+  retain: boolean;
+  /** Extra hits while 2+ enemies are alive. */
+  swarm: number;
 }
 
 export interface CardDef {
@@ -53,6 +61,10 @@ export interface Intent {
   strength?: number;
   weak?: number;
   exposed?: number;
+  /** Strength given to every other living enemy. */
+  allyStrength?: number;
+  /** Enemy id to spawn beside this one. */
+  summon?: string;
   line?: string;
 }
 
@@ -63,6 +75,12 @@ export interface EnemyDef {
   biomass: number;
   pattern: Intent[];
   flavor: string;
+  /** Splits into two half-HP copies on its first death. */
+  splits?: boolean;
+  /** While plated, reflects this share of incoming damage back at you. */
+  reflect?: number;
+  /** Swaps to a harsher pattern once HP drops to `below` of max. */
+  phase2?: { below: number; pattern: Intent[]; line?: string };
 }
 
 export interface EnemyState {
@@ -74,9 +92,11 @@ export interface EnemyState {
   status: Statuses;
   intentIdx: number;
   alive: boolean;
+  split?: boolean;
+  phase2?: boolean;
 }
 
-export type FeatureKind = 'none' | 'door' | 'debris' | 'crate' | 'pod' | 'enemies' | 'exit';
+export type FeatureKind = 'none' | 'door' | 'debris' | 'crate' | 'pod' | 'enemies' | 'event' | 'exit';
 
 export interface Segment {
   feature: FeatureKind;
@@ -88,8 +108,14 @@ export interface Segment {
   whisper?: string;
   /** Exposed stacks enemies here start with (from Flare). */
   flareExposed?: number;
-  /** Set on a sector's final fight. Winning it offers a run modifier. */
+  /** Set on a sector's final fight. 1: offers a run modifier. 2: opens the mainframe. */
   sectorBoss?: number;
+  /** A world's final fight. Winning it offers a permanent boon. */
+  worldBoss?: boolean;
+  /** An elite fight: richer rewards. */
+  elite?: boolean;
+  /** Event id, for 'event' segments. */
+  eventId?: string;
 }
 
 /** Permanent-for-the-run bonuses picked after a sector boss falls. */
@@ -105,4 +131,31 @@ export interface Corpse {
   biomass: number;
   tagged: boolean;
   taken: boolean;
+}
+
+export type NodeKind = 'fight' | 'elite' | 'locker' | 'pod' | 'event' | 'boss';
+
+export interface MapNode {
+  id: number;
+  row: number;
+  col: number;
+  kind: NodeKind;
+  hidden: boolean;
+  next: number[];
+  visited: boolean;
+  /** Exposed stacks its enemies start with (from Flare on the map). */
+  flared: number;
+}
+
+export interface WorldMap {
+  world: string;
+  nodes: MapNode[];
+  rows: number;
+}
+
+/** Permanent progress. Survives death and new runs. */
+export interface Meta {
+  boons: string[];
+  worldsCleared: string[];
+  logs: string[];
 }

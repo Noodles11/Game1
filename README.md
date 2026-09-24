@@ -3,7 +3,9 @@
 A dark sci-fi, dual-deck roguelite for mobile browsers.
 You are a clone. Walk the corridor. Eat what you kill. Rewrite your cards.
 
-This is the **vertical slice**: one sector, 13 corridor sections, 4 enemy types, 3 fights, 2 splice pods.
+A run: the **lab ship** (2 linear sectors) → beat The First → the **mainframe** → crash-land on an
+alien world and cross its **node map** to the world boss, who grants a **permanent boon**.
+Playable now: the lab and **Kessra, the Glass Caves**. Mireth and Orun come later — see `docs/WORLDS.md`.
 
 ## Play
 
@@ -27,7 +29,8 @@ npm run dev        # open the printed URL on your phone (same Wi-Fi)
 src/core/     Game rules. Pure TypeScript, seeded RNG, no DOM. Fully tested.
   cards.ts    Card and gene data, evolution (splicing), card text
   enemies.ts  Enemy stats and intent patterns
-  game.ts     State machine: explore, combat, harvest, reward, splice
+  game.ts     State machine: explore, combat, harvest, reward, splice, map, event, boon
+  worlds.ts   Worlds, node-map generation, events, logs, boons
 src/render/   Canvas drawing: layered corridor, hand-drawn creatures
 src/ui/       DOM: HUD, hand, sheets, input
 tests/        Vitest specs

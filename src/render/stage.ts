@@ -27,6 +27,34 @@ interface Particle {
   fade: number;
 }
 
+/** Colours and props for each place the corridor can be. */
+interface Biome {
+  faces: string[];
+  lamp: string;
+  /** "r,g,b" for the lamp glow gradient. */
+  glow: string;
+  lampOff: string;
+  ring: [string, string];
+  exit: [string, string, string];
+  crystals: boolean;
+  pipes: boolean;
+}
+
+const BIOMES: Record<string, Biome> = {
+  lab: {
+    faces: ['#1b1d22', '#23262c', '#2d3036', '#2a2522', '#352e29', '#2a2522', '#2d3036', '#23262c'],
+    lamp: INK.sodium, glow: '227,163,59', lampOff: '#3a3226',
+    ring: [INK.rust, '#2e2a28'], exit: ['#fff6e0', '#e8d3a8', '#6b5d45'],
+    crystals: false, pipes: true,
+  },
+  kessra: {
+    faces: ['#131c25', '#192731', '#1f313d', '#17232c', '#213746', '#17232c', '#1f313d', '#192731'],
+    lamp: '#9fe6f0', glow: '127,216,232', lampOff: '#24343e',
+    ring: ['#23404d', '#1b2a34'], exit: ['#f2fbff', '#b8e6f0', '#3f6a7a'],
+    crystals: true, pipes: false,
+  },
+};
+
 /** Horizontal slot (0..1) for enemy i of n. Shared with the DOM overlay. */
 export function enemySlot(i: number, n: number): number {
   return (i + 1) / (n + 1);
@@ -128,6 +156,15 @@ export class Stage {
       case 'block': this.sparks(this.cx, this.H * 0.78, INK.cryo, 6); break;
       case 'splice': this.sparks(this.cx, this.H * 0.5, INK.signal, 16, true); this.pulse = 1; break;
       case 'reveal': this.pulse = 1; break;
+      case 'warp':
+        this.cam = this.camFrom = this.camTo = this.game.pos;
+        this.walkT = 1;
+        this.enemyFx.clear();
+        this.enemyPos.clear();
+        break;
+      case 'resonate': this.pulse = 1; this.sparks(this.cx, this.H * 0.6, this.biome.lamp, 12, true); break;
+      case 'reflect': this.sparks(this.cx, this.H * 0.7, this.biome.lamp, 10); break;
+      case 'summon': this.pulse = 0.6; break;
       default: break;
     }
   }
@@ -292,6 +329,10 @@ export class Stage {
     ctx.globalAlpha = 1;
   }
 
+  private get biome(): Biome {
+    return BIOMES[this.game.biome] ?? BIOMES.lab;
+  }
+
   private drawSection(i: number) {
     const { ctx } = this;
     const g = this.game;
@@ -308,20 +349,22 @@ export class Stage {
     // Exit light at the end of the corridor.
     if (seg.feature === 'exit') {
       const grd = ctx.createRadialGradient(this.cx, this.cy, 0, this.cx, this.cy, this.unit(zf) * 1.6);
-      grd.addColorStop(0, '#fff6e0');
-      grd.addColorStop(0.5, '#e8d3a8');
-      grd.addColorStop(1, '#6b5d45');
+      const [a, b, c] = this.biome.exit;
+      grd.addColorStop(0, a);
+      grd.addColorStop(0.5, b);
+      grd.addColorStop(1, c);
       ctx.fillStyle = grd;
       fillPoly(ctx, far);
     }
 
     // Walls, floor and ceiling of this section.
-    const faceBase = ['#1b1d22', '#23262c', '#2d3036', '#2a2522', '#352e29', '#2a2522', '#2d3036', '#23262c'];
+    const bio = this.biome;
+    const faceBase = bio.faces;
     const lampOn = this.lampOn(i);
     for (let k = 0; k < 8; k++) {
       let col = faceBase[k];
-      if (lampOn && !hidden) col = mix(col, INK.sodium, 0.07 * (1 - fogMid));
-      if (seg.feature === 'exit') col = mix(col, '#e8d3a8', 0.25);
+      if (lampOn && !hidden) col = mix(col, bio.lamp, 0.07 * (1 - fogMid));
+      if (seg.feature === 'exit') col = mix(col, bio.exit[1], 0.25);
       ctx.fillStyle = mix(col, INK.void, hidden ? 0.85 : fogMid);
       fillPoly(ctx, [near[k], near[(k + 1) % 8], far[(k + 1) % 8], far[k]]);
     }
@@ -345,15 +388,18 @@ export class Stage {
     sketchStroke(ctx, [mid[6], mid[7]], s + 31, 1);
     // a pipe on the right wall, cables sagging from the ceiling
     ctx.globalAlpha = inkAlpha * 0.7;
-    const pipeAt = (o: Pt[]): Pt => [o[2][0] + (o[3][0] - o[2][0]) * 0.2, o[2][1] + (o[3][1] - o[2][1]) * 0.2];
-    sketchStroke(ctx, [pipeAt(near), pipeAt(far)], s + 40, 1.4);
-    if (i % 2 === 0) {
-      const a = mid[0];
-      const b = mid[1];
-      const sag = this.unit((nearZ + zf) / 2) * (0.18 + 0.05 * Math.sin(this.time * 0.8 + i));
-      sketchStroke(ctx, [a, [(a[0] + b[0]) / 2, a[1] + sag], b], s + 50, 1.2);
+    if (bio.pipes) {
+      const pipeAt = (o: Pt[]): Pt => [o[2][0] + (o[3][0] - o[2][0]) * 0.2, o[2][1] + (o[3][1] - o[2][1]) * 0.2];
+      sketchStroke(ctx, [pipeAt(near), pipeAt(far)], s + 40, 1.4);
+      if (i % 2 === 0) {
+        const a = mid[0];
+        const b = mid[1];
+        const sag = this.unit((nearZ + zf) / 2) * (0.18 + 0.05 * Math.sin(this.time * 0.8 + i));
+        sketchStroke(ctx, [a, [(a[0] + b[0]) / 2, a[1] + sag], b], s + 50, 1.2);
+      }
     }
     ctx.globalAlpha = 1;
+    if (bio.crystals && !hidden) this.drawCrystals(i, nearZ, zf, fogMid);
 
     // Contents of the section.
     const zMid = (nearZ + zf) / 2;
@@ -386,7 +432,8 @@ export class Stage {
     ctx.closePath();
     inner.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
     ctx.closePath();
-    ctx.fillStyle = mix(i % 3 === 1 ? INK.rust : '#2e2a28', INK.void, hidden ? 0.8 : fog);
+    const bio = this.biome;
+    ctx.fillStyle = mix(i % 3 === 1 ? bio.ring[0] : bio.ring[1], INK.void, hidden ? 0.8 : fog);
     ctx.fill('evenodd');
 
     ctx.strokeStyle = INK.bone;
@@ -412,14 +459,14 @@ export class Stage {
     const ly = (inner[0][1] + outer[0][1]) / 2;
     const lw = this.unit(z) * 0.18;
     const lh = this.unit(z) * 0.035;
-    ctx.fillStyle = lampOn && !hidden ? INK.sodium : '#3a3226';
+    ctx.fillStyle = lampOn && !hidden ? bio.lamp : bio.lampOff;
     ctx.globalAlpha = 1 - fog * 0.7;
     ctx.fillRect(lx - lw / 2, ly - lh / 2, lw, lh);
     if (lampOn && !hidden) {
       const r = this.unit(z) * 0.9;
       const grd = ctx.createRadialGradient(lx, ly, 0, lx, ly, r);
-      grd.addColorStop(0, 'rgba(227,163,59,0.4)');
-      grd.addColorStop(1, 'rgba(227,163,59,0)');
+      grd.addColorStop(0, `rgba(${bio.glow},0.4)`);
+      grd.addColorStop(1, `rgba(${bio.glow},0)`);
       ctx.fillStyle = grd;
       ctx.fillRect(lx - r, ly - r * 0.2, r * 2, r * 1.2);
     }
@@ -469,9 +516,99 @@ export class Stage {
         });
         break;
       }
+      case 'event': this.drawMonolith(this.cx, fy, u, seg.cleared, dim, i); break;
       default: break;
     }
     void zn;
+  }
+
+  /** Crystal clusters growing from the corners of a Kessra section. */
+  private drawCrystals(i: number, nearZ: number, zf: number, fog: number) {
+    const { ctx } = this;
+    const bio = this.biome;
+    // corners: floor-left, floor-right, ceiling-left, ceiling-right, and which way they point
+    const spots: [number, number][] = [[5, -0.9], [4, -2.2], [7, 0.7], [2, 2.4]];
+    for (let k = 0; k < spots.length; k++) {
+      if (noise(i * 13 + k) < -0.35) continue;
+      const t = 0.25 + Math.abs(noise(i * 7 + k * 3)) * 0.5;
+      const z = nearZ + (zf - nearZ) * t;
+      const o = this.octagon(z);
+      const [corner, angle] = spots[k];
+      const u = this.unit(z);
+      const count = 2 + Math.floor(Math.abs(noise(i + k * 11)) * 3);
+      for (let c = 0; c < count; c++) {
+        const len = u * (0.18 + Math.abs(noise(i * 3 + k + c * 5)) * 0.28);
+        const a = angle + noise(i + k * 2 + c) * 0.5;
+        this.drawShard(o[corner][0] + noise(c + k) * u * 0.08, o[corner][1], len, a, len * 0.28, fog, i * 31 + k * 7 + c);
+      }
+    }
+    // faint glow from the floor
+    const o = this.octagon((nearZ + zf) / 2);
+    const gy = (o[4][1] + o[5][1]) / 2;
+    const r = this.unit((nearZ + zf) / 2) * 0.9;
+    const grd = ctx.createRadialGradient(this.cx, gy, 0, this.cx, gy, r);
+    grd.addColorStop(0, `rgba(${bio.glow},${0.12 * (1 - fog)})`);
+    grd.addColorStop(1, `rgba(${bio.glow},0)`);
+    ctx.fillStyle = grd;
+    ctx.fillRect(this.cx - r, gy - r, r * 2, r * 1.2);
+  }
+
+  private drawShard(x: number, y: number, len: number, angle: number, w: number, fog: number, seed: number) {
+    const { ctx } = this;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const px = -dy;
+    const py = dx;
+    const pts: Pt[] = [
+      [x + px * w * 0.5, y + py * w * 0.5],
+      [x + dx * len * 0.8 + px * w * 0.4, y + dy * len * 0.8 + py * w * 0.4],
+      [x + dx * len, y + dy * len],
+      [x + dx * len * 0.8 - px * w * 0.4, y + dy * len * 0.8 - py * w * 0.4],
+      [x - px * w * 0.5, y - py * w * 0.5],
+    ];
+    const pulse = 0.5 + 0.5 * Math.sin(this.time * 1.3 + seed);
+    ctx.fillStyle = `rgba(${this.biome.glow},${(0.18 + pulse * 0.12) * (1 - fog)})`;
+    fillPoly(ctx, pts);
+    ctx.strokeStyle = mix('#d6f6fb', INK.void, fog);
+    ctx.globalAlpha = 0.8 * (1 - fog * 0.8);
+    ctx.lineWidth = Math.max(0.8, len * 0.02);
+    sketchStroke(ctx, pts, seed + this.boil, 0.8, true);
+    sketchStroke(ctx, [[x, y], [x + dx * len, y + dy * len]], seed + 9 + this.boil, 0.6);
+    ctx.globalAlpha = 1;
+  }
+
+  /** An event: a crystal pillar with something human-shaped inside. */
+  private drawMonolith(x: number, fy: number, u: number, done: boolean, dim: number, i: number) {
+    const { ctx } = this;
+    const w = u * 0.34;
+    const h = u * 1.35;
+    const top = fy - h;
+    const pts: Pt[] = [
+      [x - w * 0.5, fy], [x - w * 0.62, top + h * 0.3], [x - w * 0.2, top],
+      [x + w * 0.3, top + h * 0.06], [x + w * 0.6, top + h * 0.35], [x + w * 0.5, fy],
+    ];
+    if (!done) {
+      const g = ctx.createRadialGradient(x, top + h * 0.5, 0, x, top + h * 0.5, u);
+      g.addColorStop(0, `rgba(${this.biome.glow},${0.35 * (1 - dim)})`);
+      g.addColorStop(1, `rgba(${this.biome.glow},0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(x - u, top - u * 0.2, u * 2, h + u * 0.4);
+    }
+    ctx.fillStyle = `rgba(${this.biome.glow},${(done ? 0.08 : 0.22) * (1 - dim)})`;
+    fillPoly(ctx, pts);
+    // the figure inside
+    ctx.fillStyle = mix(done ? '#2a3a44' : '#9cc8d2', INK.void, dim + 0.25);
+    ctx.beginPath();
+    ctx.ellipse(x, top + h * 0.3, w * 0.13, w * 0.16, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, top + h * 0.56, w * 0.17, h * 0.2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = mix('#d6f6fb', INK.void, dim);
+    ctx.lineWidth = Math.max(1, u * 0.009);
+    ctx.globalAlpha = 1 - dim * 0.8;
+    sketchStroke(ctx, pts, i * 17 + this.boil, 1.2, true);
+    sketchStroke(ctx, [pts[2], [x + w * 0.05, fy]], i * 17 + 40 + this.boil, 1);
+    if (done) sketchStroke(ctx, [[x - w * 0.4, top + h * 0.2], [x + w * 0.1, top + h * 0.5], [x - w * 0.2, top + h * 0.75]], i + 90, 1);
+    ctx.globalAlpha = 1;
   }
 
   private drawCrate(x: number, fy: number, u: number, open: boolean, dim: number, i: number) {

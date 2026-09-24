@@ -4,9 +4,16 @@ import {
 } from './cards';
 import { ENEMIES } from './enemies';
 import { Rng } from './rng';
-import type { CardInstance, CardStats, Corpse, DeckKind, EnemyState, Intent, Modifiers, Segment, Statuses } from './types';
+import type {
+  CardInstance, CardStats, Corpse, DeckKind, EnemyState, Intent, MapNode, Meta, Modifiers, Segment, Statuses, WorldMap,
+} from './types';
+import { BOONS, EVENTS, LOGS, WORLDS, generateMap } from './worlds';
 
-export type Phase = 'explore' | 'combat' | 'harvest' | 'reward' | 'loot' | 'splice' | 'modifier' | 'dead' | 'won';
+export type Phase =
+  | 'explore' | 'combat' | 'harvest' | 'reward' | 'loot' | 'splice' | 'modifier'
+  | 'mainframe' | 'map' | 'event' | 'boon' | 'dead' | 'won';
+
+export const freshMeta = (): Meta => ({ boons: [], worldsCleared: [], logs: [] });
 
 export type GameEvent =
   | { type: 'step' }
@@ -22,7 +29,11 @@ export type GameEvent =
   | { type: 'line'; uid: number; text: string }
   | { type: 'reveal' }
   | { type: 'splice'; uid: number }
-  | { type: 'empower'; uid: number; amount: number };
+  | { type: 'empower'; uid: number; amount: number }
+  | { type: 'warp' }
+  | { type: 'resonate' }
+  | { type: 'summon'; uid: number }
+  | { type: 'reflect'; amount: number };
 
 export interface CombatState {
   enemies: EnemyState[];
@@ -37,6 +48,9 @@ export interface CombatState {
   buffs: Map<number, number>;
   /** Set right after an Empower card hits. The player must pick a card in hand to receive it. */
   pendingEmpower: { amount: number } | null;
+  playedThisTurn: number;
+  playedThisFight: number;
+  lastWasAttack: boolean;
 }
 
 export interface Offer {
@@ -50,7 +64,9 @@ export const MAX_OXYGEN = 3;
 export const SURVEY_HAND = 4;
 export const FORCE_COST = 4;
 const VIEW_RANGE = 4;
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 2;
+const MAX_ENEMIES = 4;
+const ELITE_BIOMASS = 6;
 
 const freshStatus = (): Statuses => ({ weak: 0, exposed: 0, tagged: 0, strength: 0 });
 
@@ -86,6 +102,19 @@ export class Game {
   sector2Start: number;
   modifiers: Modifiers = { biomass: false, integrity: false, energy: false };
 
+  /** Permanent progress, shared with the app and saved separately. */
+  meta: Meta;
+  /** Current alien world, or null while on the lab ship. */
+  world: string | null = null;
+  map: WorldMap | null = null;
+  /** The map node the player is in or last left. */
+  mapNode: number | null = null;
+  eventId: string | null = null;
+  eventResult: string | null = null;
+  boonOffers: string[] = [];
+  /** Plating kept into the next turn (Crystal Skin). */
+  retainBlock = 0;
+
   // Survey (explore) piles
   sDraw: CardInstance[] = [];
   sHand: CardInstance[] = [];
@@ -107,9 +136,10 @@ export class Game {
   message = '';
   private nextUid = 1;
 
-  constructor(seed: number, cloneNo = 1) {
+  constructor(seed: number, cloneNo = 1, meta: Meta = freshMeta()) {
     this.rng = new Rng(seed);
     this.cloneNo = cloneNo;
+    this.meta = meta;
     this.combatDeck = STARTER_COMBAT.map((id) => this.makeCard(id));
     this.surveyDeck = STARTER_SURVEY.map((id) => this.makeCard(id));
     const sector1 = this.buildSector1();
@@ -165,13 +195,21 @@ export class Game {
       seg('none', { whisper: whispers[2] }),
       seg('pod', { whisper: 'The last pod. The glass is fogged from the inside.' }),
       seg('door'),
-      seg('enemies', { encounter: ['first'], whisper: 'A shape too large for the hall. It already knows your name.' }),
-      seg('exit'),
+      seg('enemies', { encounter: ['first'], whisper: 'A shape too large for the hall. It already knows your name.', sectorBoss: 2 }),
     ];
   }
 
   get sectorNum(): number {
     return this.pos < this.sector2Start ? 1 : 2;
+  }
+
+  /** Which art set to draw: the lab ship, or the current world. */
+  get biome(): string {
+    return this.world ?? 'lab';
+  }
+
+  hasBoon(id: string): boolean {
+    return this.meta.boons.includes(id);
   }
 
   private emit(e: GameEvent) {
@@ -235,7 +273,8 @@ export class Game {
       case 'crate': return 'A supply locker. Pry it open, or walk past.';
       case 'pod': return 'A splice pod glows ahead. Tap it to evolve cards.';
       case 'enemies': return 'Something waits ahead. Advance to fight.';
-      case 'exit': return 'Light. Real light. Keep walking.';
+      case 'exit': return this.world ? 'The way out. Walk on to return to the map.' : 'Light. Real light. Keep walking.';
+      case 'event': return 'Something here is worth a look.';
       default: return 'The corridor goes on.';
     }
   }
@@ -265,8 +304,13 @@ export class Game {
       this.startCombat(here);
       return true;
     }
+    if (here.feature === 'event' && !here.cleared && here.eventId) {
+      this.startEvent(here.eventId);
+      return true;
+    }
     if (here.feature === 'exit') {
-      this.phase = 'won';
+      if (this.world) this.completeNode();
+      else this.phase = 'won';
       return true;
     }
     this.newSurveyTurn();
@@ -298,6 +342,16 @@ export class Game {
   surveyPlayable(card: CardInstance): string | null {
     const s = cardStats(card);
     const def = cardDef(card);
+    if (this.phase === 'map') {
+      if (s.cost > this.oxygen) return 'Not enough oxygen.';
+      switch (def.action) {
+        case 'scan': return this.mapAhead(2).some((n) => n.hidden) ? null : 'Nothing hidden ahead.';
+        case 'flare': return this.mapAhead(1).some((n) => n.kind === 'fight' || n.kind === 'elite') ? null : 'No fight ahead to light.';
+        case 'stim': return this.hp < this.maxHp ? null : 'Integrity already full.';
+        case 'override': case 'cut': case 'pry': return 'Nothing to use that on here.';
+        default: return null;
+      }
+    }
     if (this.phase !== 'explore') return 'Not now.';
     if (s.cost > this.oxygen) return 'Not enough oxygen.';
     switch (def.action) {
@@ -323,6 +377,23 @@ export class Game {
     this.sHand = this.sHand.filter((c) => c !== card);
     this.sDiscard.push(card);
     this.message = '';
+
+    if (this.phase === 'map') {
+      if (def.action === 'scan') {
+        for (const n of this.mapAhead(2)) n.hidden = false;
+        this.message = 'The echo maps the caves ahead.';
+        this.emit({ type: 'reveal' });
+      } else if (def.action === 'flare') {
+        for (const n of this.mapAhead(1)) if (n.kind === 'fight' || n.kind === 'elite') n.flared += s.exposed;
+        this.message = 'Red light floods the next row. Whatever waits there will flinch.';
+        this.emit({ type: 'reveal' });
+      }
+      if (s.heal > 0) this.healPlayer(s.heal);
+      if (s.biomass > 0) this.gainBiomass(s.biomass);
+      if (s.draw > 0) this.drawSurvey(s.draw);
+      if (!this.message) this.message = 'Choose your path.';
+      return true;
+    }
 
     switch (def.action) {
       case 'override':
@@ -372,8 +443,13 @@ export class Game {
 
   // ----------------------------------------------------------------- loot
 
+  /** Combat reward pool: the base pool plus the current world's cards. */
+  private rewardPool(): string[] {
+    return this.world ? [...REWARD_COMBAT, ...WORLDS[this.world].cards] : REWARD_COMBAT;
+  }
+
   private openLoot() {
-    const combat = this.rng.sample(REWARD_COMBAT, 2).map((defId) => ({ defId, deck: 'combat' as const }));
+    const combat = this.rng.sample(this.rewardPool(), 2).map((defId) => ({ defId, deck: 'combat' as const }));
     const survey = { defId: this.rng.pick(REWARD_SURVEY), deck: 'survey' as const };
     this.offers = [...combat, survey];
     this.gainBiomass(3);
@@ -396,9 +472,15 @@ export class Game {
     const wasReward = this.phase === 'reward';
     const bossSeg = wasReward ? this.segments[this.pos] : undefined;
     if (bossSeg?.sectorBoss) {
+      const which = bossSeg.sectorBoss;
       bossSeg.sectorBoss = undefined;
-      this.phase = 'modifier';
+      this.phase = which === 2 ? 'mainframe' : 'modifier';
       this.message = '';
+      return;
+    }
+    if (bossSeg?.worldBoss) {
+      bossSeg.worldBoss = undefined;
+      this.finishWorld();
       return;
     }
     this.phase = 'explore';
@@ -417,6 +499,186 @@ export class Game {
     }
     this.phase = 'explore';
     this.newSurveyTurn();
+  }
+
+  // ---------------------------------------------------------------- worlds
+
+  /** Mainframe: pick a destination. The ship crash-lands there. */
+  chooseWorld(id: string): boolean {
+    const def = WORLDS[id];
+    if (this.phase !== 'mainframe' || !def?.playable) return false;
+    this.world = id;
+    this.map = generateMap(this.rng, id);
+    this.mapNode = null;
+    this.segments = [];
+    this.pos = 0;
+    this.enterMap();
+    this.emit({ type: 'whisper', text: def.crash });
+    return true;
+  }
+
+  private enterMap() {
+    this.phase = 'map';
+    this.newSurveyTurn();
+    this.message = 'Choose your path. Echo Scan and Flare work on the map too.';
+  }
+
+  get currentNode(): MapNode | null {
+    if (!this.map || this.mapNode === null) return null;
+    return this.map.nodes[this.mapNode];
+  }
+
+  /** Depth on the map, 0 before the first node. */
+  get depth(): number {
+    const n = this.currentNode;
+    return n ? n.row + 1 : 0;
+  }
+
+  /** Nodes the player may travel to next. */
+  reachable(): MapNode[] {
+    if (!this.map) return [];
+    const here = this.currentNode;
+    if (!here) return this.map.nodes.filter((n) => n.row === 0);
+    return here.next.map((id) => this.map!.nodes[id]);
+  }
+
+  /** Nodes up to `rows` rows ahead of the player. */
+  private mapAhead(rows: number): MapNode[] {
+    if (!this.map) return [];
+    const from = this.currentNode ? this.currentNode.row : -1;
+    return this.map.nodes.filter((n) => n.row > from && n.row <= from + rows && n.kind !== 'boss');
+  }
+
+  /** Walk into a map node: it becomes a short corridor. */
+  travel(nodeId: number): boolean {
+    if (this.phase !== 'map' || !this.map) return false;
+    const node = this.reachable().find((n) => n.id === nodeId);
+    if (!node) return false;
+    node.hidden = false;
+    node.visited = true;
+    this.mapNode = node.id;
+    this.segments = this.buildNode(node);
+    this.pos = 0;
+    this.segments[0].revealed = true;
+    this.updateVisibility();
+    this.phase = 'explore';
+    this.emit({ type: 'warp' });
+    if (this.segments[0].whisper) this.emit({ type: 'whisper', text: this.segments[0].whisper });
+    this.newSurveyTurn();
+    return true;
+  }
+
+  private buildNode(node: MapNode): Segment[] {
+    const w = WORLDS[this.world!];
+    const seg = (feature: Segment['feature'], extra: Partial<Segment> = {}): Segment => ({
+      feature, dark: false, lit: false, revealed: false, cleared: false, ...extra,
+    });
+    const entry = seg('none', { whisper: this.rng.pick(w.whispers) });
+    const exit = seg('exit');
+    const flare = node.flared || undefined;
+    switch (node.kind) {
+      case 'fight': {
+        const pool = node.row < 3 ? w.fightsEarly : w.fightsLate;
+        const fight = seg('enemies', { encounter: [...this.rng.pick(pool)], dark: this.rng.next() < 0.3, flareExposed: flare });
+        const roll = this.rng.next();
+        const obstacle = roll < 0.25 ? [seg('door')] : roll < 0.45 ? [seg('debris')] : [];
+        return [entry, ...obstacle, fight, exit];
+      }
+      case 'elite':
+        return [entry, seg('enemies', { encounter: [...this.rng.pick(w.elites)], elite: true, flareExposed: flare, whisper: 'Something bigger. It has been waiting for you.' }), exit];
+      case 'locker':
+        return [entry, seg('crate'), exit];
+      case 'pod':
+        return [entry, seg('pod', { whisper: 'A splice pod, grown over with crystal. It still works.' }), exit];
+      case 'event': {
+        const unseen = w.events.filter((id) => !this.segmentsSeenEvent(id));
+        const id = this.rng.pick(unseen.length ? unseen : w.events);
+        this.seenEvents.push(id);
+        return [entry, seg('event', { eventId: id }), exit];
+      }
+      case 'boss':
+      default:
+        return [
+          seg('none', { whisper: w.bossWhisper }),
+          seg('enemies', { encounter: [w.boss], worldBoss: true }),
+          exit,
+        ];
+    }
+  }
+
+  /** Events already rolled this run, so a world does not repeat itself. */
+  seenEvents: string[] = [];
+
+  private segmentsSeenEvent(id: string): boolean {
+    return this.seenEvents.includes(id);
+  }
+
+  /** Walked off the end of a node's corridor. */
+  private completeNode() {
+    this.segments = [];
+    this.pos = 0;
+    this.emit({ type: 'warp' });
+    this.enterMap();
+  }
+
+  // ---------------------------------------------------------------- events
+
+  private startEvent(id: string) {
+    const ev = EVENTS[id];
+    this.eventId = id;
+    this.eventResult = null;
+    this.phase = 'event';
+    if (!this.meta.logs.includes(ev.log)) this.meta.logs.push(ev.log);
+  }
+
+  chooseEventOption(index: number): boolean {
+    if (this.phase !== 'event' || !this.eventId || this.eventResult !== null) return false;
+    const opt = EVENTS[this.eventId].options[index];
+    if (!opt) return false;
+    const e = opt.effect;
+    if (e.maxHp) this.maxHp += e.maxHp;
+    if (e.heal) this.healPlayer(e.heal);
+    if (e.biomass) this.gainBiomass(e.biomass);
+    if (e.card) this.combatDeck.push(this.makeCard(e.card));
+    if (e.worldCard && this.world) this.combatDeck.push(this.makeCard(this.rng.pick(WORLDS[this.world].cards)));
+    if (e.hp) this.damagePlayerRaw(-e.hp);
+    this.eventResult = opt.result;
+    return true;
+  }
+
+  leaveEvent(): void {
+    if (this.phase !== 'event' || this.isDead) return;
+    this.segments[this.pos].cleared = true;
+    this.eventId = null;
+    this.eventResult = null;
+    this.phase = 'explore';
+    this.newSurveyTurn();
+  }
+
+  // ---------------------------------------------------------------- boons
+
+  private finishWorld() {
+    const w = WORLDS[this.world!];
+    if (!this.meta.worldsCleared.includes(w.id)) this.meta.worldsCleared.push(w.id);
+    if (!this.meta.logs.includes(w.bossLog)) this.meta.logs.push(w.bossLog);
+    this.boonOffers = w.boons.filter((b) => !this.hasBoon(b));
+    this.phase = this.boonOffers.length ? 'boon' : 'won';
+  }
+
+  chooseBoon(id: string): boolean {
+    if (this.phase !== 'boon' || !this.boonOffers.includes(id)) return false;
+    this.meta.boons.push(id);
+    this.boonOffers = [];
+    this.phase = 'won';
+    return true;
+  }
+
+  logText(id: string): string {
+    return LOGS[id] ?? '';
+  }
+
+  boon(id: string) {
+    return BOONS[id];
   }
 
   // ----------------------------------------------------------------- pods
@@ -498,18 +760,28 @@ export class Game {
       ambush,
       buffs: new Map(),
       pendingEmpower: null,
+      playedThisTurn: 0,
+      playedThisFight: 0,
+      lastWasAttack: false,
     };
     this.playerStatus = freshStatus();
     this.corpses = [];
     this.phase = 'combat';
+    this.playerBlock = 0;
+    this.retainBlock = 0;
     this.startPlayerTurn();
+    if (this.hasBoon('crystal-bones')) {
+      this.playerBlock += 4;
+      this.emit({ type: 'block', amount: 4 });
+    }
     this.message = ambush
       ? 'AMBUSH. They were waiting in the dark. −1 energy this turn.'
       : 'Tap a card, then tap it again to play.';
   }
 
   intentOf(e: EnemyState): Intent {
-    const p = ENEMIES[e.defId].pattern;
+    const def = ENEMIES[e.defId];
+    const p = e.phase2 && def.phase2 ? def.phase2.pattern : def.pattern;
     return p[e.intentIdx % p.length];
   }
 
@@ -530,7 +802,10 @@ export class Game {
   private startPlayerTurn() {
     const c = this.combat!;
     c.turn++;
-    this.playerBlock = 0;
+    this.playerBlock = Math.min(this.playerBlock, this.retainBlock);
+    this.retainBlock = 0;
+    c.playedThisTurn = 0;
+    c.lastWasAttack = false;
     c.energyCap = MAX_ENERGY + (this.modifiers.energy ? 1 : 0);
     c.energy = c.energyCap - (c.ambush && c.turn === 1 ? 1 : 0);
     this.drawCombat(COMBAT_HAND);
@@ -588,6 +863,14 @@ export class Game {
     if (this.combat) this.combat.pendingEmpower = null;
   }
 
+  /** Does the card about to be played resolve twice? */
+  resonates(): boolean {
+    const c = this.combat;
+    if (!c) return false;
+    if (this.hasBoon('resonant-core') && c.playedThisFight === 0) return true;
+    return this.world === 'kessra' && (c.playedThisTurn + 1) % 3 === 0;
+  }
+
   playCombat(uid: number, targetUid?: number): boolean {
     const c = this.combat;
     if (!c || this.phase !== 'combat') return false;
@@ -600,31 +883,66 @@ export class Game {
     }
     const s = cardStats(card);
     const living = this.livingEnemies();
-    let targets: EnemyState[] = [];
-    if (s.aoe) targets = living;
-    else if (needsTarget(card)) {
-      const t = living.find((e) => e.uid === targetUid) ?? (living.length === 1 ? living[0] : undefined);
-      if (!t) {
+    let target: EnemyState | undefined;
+    if (!s.aoe && needsTarget(card)) {
+      target = living.find((e) => e.uid === targetUid) ?? (living.length === 1 ? living[0] : undefined);
+      if (!target) {
         this.message = 'Choose a target.';
         return false;
       }
-      targets = [t];
     }
 
     c.energy -= s.cost;
     c.hand = c.hand.filter((h) => h !== card);
     c.discard.push(card);
 
+    const times = this.resonates() ? 2 : 1;
+    const chained = c.lastWasAttack;
+    c.playedThisTurn++;
+    c.playedThisFight++;
+    for (let r = 0; r < times; r++) {
+      if (r > 0) this.emit({ type: 'resonate' });
+      this.resolveCard(card, s, target, chained);
+      if (this.isDead || this.livingEnemies().length === 0) break;
+    }
+    if (this.isDead) return true;
+    c.lastWasAttack = s.damage > 0;
+    this.message = '';
+
+    if (this.livingEnemies().length === 0) this.winCombat();
+    return true;
+  }
+
+  /** Apply one card's effects once. Resonance calls this twice. */
+  private resolveCard(card: CardInstance, s: CardStats, chosen: EnemyState | undefined, chained: boolean) {
+    const c = this.combat!;
+    const living = this.livingEnemies();
+    let targets: EnemyState[] = [];
+    if (s.aoe) targets = living;
+    else if (needsTarget(card)) {
+      const t = chosen && chosen.alive ? chosen : living[0];
+      if (t) targets = [t];
+    }
+
     if (s.block > 0) {
       this.playerBlock += s.block;
+      if (s.retain) this.retainBlock += s.block;
       this.emit({ type: 'block', amount: s.block });
     }
     const bonus = this.combatBonus(card);
+    const hits = s.hits + (chained ? s.chain : 0) + (living.length >= 2 ? s.swarm : 0);
     let dealt = 0;
     for (const t of targets) {
-      for (let h = 0; h < s.hits && t.alive; h++) {
-        const dmg = this.scale(s.damage + bonus + this.playerStatus.strength, this.playerStatus.weak > 0, t.status.exposed > 0);
+      let extra = 0;
+      if (s.shatter > 0) {
+        extra = t.block * s.shatter;
+        t.block = 0;
+      }
+      for (let h = 0; h < hits && t.alive; h++) {
+        const base = s.damage + bonus + this.playerStatus.strength + (h === 0 ? extra : 0);
+        const dmg = this.scale(base, this.playerStatus.weak > 0, t.status.exposed > 0);
         dealt += this.damageEnemy(t, dmg);
+        if (this.isDead) return;
       }
       if (t.alive) {
         t.status.tagged += s.tag;
@@ -637,31 +955,71 @@ export class Game {
       }
     }
     c.energy += s.energy;
+    if (s.heal > 0) this.healPlayer(s.heal);
     if (s.draw > 0) this.drawCombat(s.draw);
     if (s.drain > 0 && dealt > 0) this.gainBiomass(Math.floor(dealt * s.drain / 100));
-    if (s.empower > 0 && c.hand.length > 0) c.pendingEmpower = { amount: s.empower };
-    this.message = '';
-
-    if (this.livingEnemies().length === 0) this.winCombat();
-    return true;
+    if (s.empower > 0 && c.hand.length > 0) {
+      c.pendingEmpower = { amount: (c.pendingEmpower?.amount ?? 0) + s.empower };
+    }
   }
 
   /** Damages an enemy and returns how much of it actually landed (after their plating). */
   private damageEnemy(e: EnemyState, amount: number): number {
     if (amount <= 0) return 0;
+    const def = ENEMIES[e.defId];
+    const plated = e.block > 0;
     const blocked = Math.min(e.block, amount);
     e.block -= blocked;
     const dealt = amount - blocked;
     e.hp -= dealt;
     this.emit({ type: 'enemyHit', uid: e.uid, amount: dealt, blocked });
+    if (def.reflect && plated) {
+      const back = Math.floor(amount * def.reflect);
+      if (back > 0) {
+        this.emit({ type: 'reflect', amount: back });
+        this.damagePlayer(back);
+        if (this.isDead) return dealt;
+      }
+    }
     if (e.hp <= 0) {
       e.hp = 0;
       e.alive = false;
-      const def = ENEMIES[e.defId];
       this.corpses.push({ uid: e.uid, defId: e.defId, biomass: def.biomass, tagged: e.status.tagged > 0, taken: false });
       this.emit({ type: 'enemyDie', uid: e.uid });
+      if (def.splits && !e.split) {
+        const half = Math.max(1, Math.floor(e.maxHp / 2));
+        this.spawnEnemy(e.defId, half, true);
+        this.spawnEnemy(e.defId, half, true);
+      }
+    } else if (def.phase2 && !e.phase2 && e.hp <= e.maxHp * def.phase2.below) {
+      e.phase2 = true;
+      e.intentIdx = 0;
+      if (def.phase2.line) this.emit({ type: 'line', uid: e.uid, text: def.phase2.line });
     }
     return dealt;
+  }
+
+  /** Add an enemy to the current fight. Clears away the already-dead to make room. */
+  private spawnEnemy(defId: string, hp?: number, split = false): boolean {
+    const c = this.combat;
+    if (!c) return false;
+    c.enemies = c.enemies.filter((x) => x.alive);
+    if (c.enemies.length >= MAX_ENEMIES) return false;
+    const def = ENEMIES[defId];
+    const e: EnemyState = {
+      uid: this.nextUid++,
+      defId,
+      hp: hp ?? def.hp,
+      maxHp: hp ?? def.hp,
+      block: 0,
+      status: freshStatus(),
+      intentIdx: this.rng.int(def.pattern.length),
+      alive: true,
+      split,
+    };
+    c.enemies.push(e);
+    this.emit({ type: 'summon', uid: e.uid });
+    return true;
   }
 
   endTurn(): void {
@@ -672,7 +1030,7 @@ export class Game {
     c.hand = [];
     this.tickStatus(this.playerStatus);
 
-    for (const e of c.enemies) {
+    for (const e of [...c.enemies]) {
       if (!e.alive) continue;
       e.block = 0;
       const intent = this.intentOf(e);
@@ -687,6 +1045,11 @@ export class Game {
         }
       }
       if (intent.strength) e.status.strength += intent.strength;
+      if (intent.allyStrength) {
+        for (const o of c.enemies) if (o !== e && o.alive) o.status.strength += intent.allyStrength;
+      }
+      // Summoned minions arrive already split, so they never multiply.
+      if (intent.summon) this.spawnEnemy(intent.summon, undefined, true);
       if (intent.weak) this.playerStatus.weak += intent.weak;
       if (intent.exposed) this.playerStatus.exposed += intent.exposed;
       this.tickStatus(e.status);
@@ -754,7 +1117,10 @@ export class Game {
     this.corpses = [];
     this.playerStatus = freshStatus();
     this.playerBlock = 0;
-    this.offers = this.rng.sample(REWARD_COMBAT, 3).map((defId) => ({ defId, deck: 'combat' as const }));
+    const seg = this.segments[this.pos];
+    const pool = seg?.elite && this.world ? WORLDS[this.world].cards : this.rewardPool();
+    this.offers = this.rng.sample(pool, 3).map((defId) => ({ defId, deck: 'combat' as const }));
+    if (seg?.elite) this.gainBiomass(ELITE_BIOMASS);
     this.phase = 'reward';
   }
 
@@ -810,15 +1176,23 @@ export class Game {
       podIndex: this.podIndex,
       nextUid: this.nextUid,
       message: this.message,
+      world: this.world,
+      map: this.map,
+      mapNode: this.mapNode,
+      eventId: this.eventId,
+      eventResult: this.eventResult,
+      boonOffers: this.boonOffers,
+      retainBlock: this.retainBlock,
+      seenEvents: this.seenEvents,
     });
   }
 
   /** Restore a run saved by `serialize()`. Returns null on any mismatch or corruption. */
-  static load(json: string): Game | null {
+  static load(json: string, meta: Meta = freshMeta()): Game | null {
     try {
       const d = JSON.parse(json);
       if (d?.v !== SAVE_VERSION) return null;
-      const g = new Game(0, d.cloneNo);
+      const g = new Game(0, d.cloneNo, meta);
       g.rng.importState(d.rngState);
       g.hp = d.hp;
       g.maxHp = d.maxHp;
@@ -842,6 +1216,14 @@ export class Game {
       g.podIndex = d.podIndex;
       g.nextUid = d.nextUid;
       g.message = d.message;
+      g.world = d.world;
+      g.map = d.map;
+      g.mapNode = d.mapNode;
+      g.eventId = d.eventId;
+      g.eventResult = d.eventResult;
+      g.boonOffers = d.boonOffers;
+      g.retainBlock = d.retainBlock;
+      g.seenEvents = d.seenEvents;
       g.events = [];
       return g;
     } catch {

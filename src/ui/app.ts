@@ -1,12 +1,24 @@
 import { GENES, cardDef, cardLevel, cardName, cardText, needsTarget, splice, spliceCost } from '../core/cards';
 import { ENEMIES } from '../core/enemies';
-import { FORCE_COST, Game, MAX_OXYGEN, type GameEvent } from '../core/game';
-import type { CardInstance, DeckKind, EnemyState } from '../core/types';
+import { FORCE_COST, Game, MAX_OXYGEN, freshMeta, type GameEvent } from '../core/game';
+import type { CardInstance, DeckKind, EnemyState, MapNode, Meta } from '../core/types';
+import { BOONS, EVENTS, LOGS, MAP_ROWS, WORLDS, WORLD_ORDER } from '../core/worlds';
 import { Stage, enemySlot } from '../render/stage';
 
 const CLONE_KEY = 'reprint.clone';
 const INTRO_KEY = 'reprint.introSeen';
 const SAVE_KEY = 'reprint.save';
+const META_KEY = 'reprint.meta';
+
+function loadMeta(): Meta {
+  try {
+    const d = JSON.parse(store(META_KEY) ?? 'null');
+    if (d && Array.isArray(d.boons) && Array.isArray(d.worldsCleared) && Array.isArray(d.logs)) return d;
+  } catch {
+    /* fall through to a fresh meta */
+  }
+  return freshMeta();
+}
 
 function store(key: string, value?: string): string | null {
   try {
@@ -36,6 +48,26 @@ const HINTS: Record<string, string> = {
   strength: 'Strength — adds flat damage to every attack this enemy makes. Never fades on its own.',
   cost: 'Cost — what this card needs to play: energy in a fight, oxygen while exploring.',
   genes: 'Genes — each dot is one splice. They stack without limit, but each one costs more biomass than the last.',
+  resonance: 'Resonance — in Kessra, every 3rd card you play each turn resolves twice.',
+  reflect: 'Reflect — while this enemy has plating, half of each hit you land comes back at you. Strip its plating first.',
+  splits: 'Splits — the first time it dies, it breaks into two copies at half health.',
+  allies: 'Chorus — gives every other enemy strength. Kill it first.',
+  summon: 'Shed — calls another enemy into the fight.',
+  boons: 'Boons — permanent. Earned by killing a world boss. They stay through death and every new clone.',
+  'node-fight': 'Fight — a short corridor with regular enemies at the end.',
+  'node-elite': 'Elite — one tough enemy. Rewards a card from this world, plus biomass.',
+  'node-locker': 'Locker — supplies. Bring a Pry Bar.',
+  'node-pod': 'Splice pod — spend biomass to evolve your cards.',
+  'node-event': 'Event — something strange. A choice, and a log that stays with you forever.',
+  'node-boss': 'Boss — the heart of this world. Beat it for a permanent boon.',
+  'node-hidden': 'Unknown — play Echo Scan to see what waits here.',
+};
+
+const NODE_GLYPH: Record<string, string> = {
+  fight: '✕', elite: '✖', locker: '▣', pod: '◍', event: '✦', boss: '◉',
+};
+const NODE_NAME: Record<string, string> = {
+  fight: 'Fight', elite: 'Elite', locker: 'Locker', pod: 'Splice pod', event: 'Event', boss: 'Boss',
 };
 
 const LONG_PRESS_MS = 420;
@@ -64,6 +96,8 @@ export class App {
   private dock: HTMLElement;
   private sheetEl: HTMLElement;
   private hintEl: HTMLElement;
+  private mapEl: HTMLElement;
+  private meta: Meta;
 
   constructor(root: HTMLElement) {
     root.innerHTML = `
@@ -74,6 +108,7 @@ export class App {
         <canvas aria-label="Corridor view"></canvas>
         <div class="overlay"></div>
         <div class="overlay fx"></div>
+        <div class="mapview" hidden></div>
         <p class="whisper" aria-live="polite"></p>
       </main>
       <section class="dock"></section>
@@ -88,11 +123,13 @@ export class App {
     this.dock = root.querySelector('.dock')!;
     this.sheetEl = root.querySelector('.sheet')!;
     this.hintEl = root.querySelector('.hintbubble')!;
+    this.mapEl = root.querySelector('.mapview')!;
 
+    this.meta = loadMeta();
     const saved = store(SAVE_KEY);
-    const resumed = saved ? Game.load(saved) : null;
+    const resumed = saved ? Game.load(saved, this.meta) : null;
     const cloneNo = resumed?.cloneNo ?? (Number(store(CLONE_KEY) ?? '1') || 1);
-    this.game = resumed ?? new Game(Date.now() >>> 0, cloneNo);
+    this.game = resumed ?? new Game(Date.now() >>> 0, cloneNo, this.meta);
     this.stage = new Stage(root.querySelector('canvas')!, this.game);
     if (!store(INTRO_KEY)) this.sheet = 'intro';
 
@@ -199,6 +236,11 @@ export class App {
       case 'leave-pod': g.leavePod(); break;
       case 'mod': g.chooseModifier(el.dataset.mod as 'biomass' | 'integrity' | 'energy'); break;
       case 'empower': g.empowerTarget(uid); break;
+      case 'world': g.chooseWorld(el.dataset.world!); break;
+      case 'node': this.selected = null; g.travel(Number(el.dataset.node)); break;
+      case 'event-opt': g.chooseEventOption(Number(el.dataset.i)); break;
+      case 'event-leave': g.leaveEvent(); break;
+      case 'boon': g.chooseBoon(el.dataset.boon!); break;
       case 'skip-empower': g.skipEmpower(); break;
       case 'decks': this.sheet = 'decks'; break;
       case 'close': this.sheet = 'none'; break;
@@ -213,7 +255,7 @@ export class App {
 
   private tapCard(uid: number) {
     const g = this.game;
-    if (g.phase === 'explore') {
+    if (g.phase === 'explore' || g.phase === 'map') {
       const card = g.sHand.find((c) => c.uid === uid);
       if (!card) return;
       if (this.selected === uid) {
@@ -262,7 +304,7 @@ export class App {
   private reprint() {
     const next = this.game.cloneNo + 1;
     store(CLONE_KEY, String(next));
-    this.game = new Game(Date.now() >>> 0, next);
+    this.game = new Game(Date.now() >>> 0, next, this.meta);
     this.stage.setGame(this.game);
     this.selected = null;
     this.sheet = 'none';
@@ -332,6 +374,13 @@ export class App {
       case 'biomass': this.float(`+${e.amount} biomass`, 'bio', 50, 45); break;
       case 'block': this.float(`▢ +${e.amount}`, 'block', 50, 70); break;
       case 'splice': this.float('SPLICED', 'bio', 50, 30); break;
+      case 'resonate': this.float('RESONANCE', 'res', 50, 34); break;
+      case 'reflect': this.float(`REFLECTED ${e.amount}`, 'hurt', 50, 50); break;
+      case 'summon': {
+        const x = this.slotOf(e.uid);
+        this.float('+1', 'res', x ?? 50, 30);
+        break;
+      }
       case 'empower': this.float(`+${e.amount} ARMED`, 'bio', 50, 40); break;
       case 'whisper': this.say(e.text); break;
       case 'line': {
@@ -365,6 +414,7 @@ export class App {
     this.renderDock();
     this.renderSheet();
     store(SAVE_KEY, this.game.serialize());
+    store(META_KEY, JSON.stringify(this.meta));
   }
 
   private renderHud() {
@@ -387,12 +437,24 @@ export class App {
     if (g.modifiers.biomass) mods.push('<span class="mod">biomass +50%</span>');
     if (g.modifiers.integrity) mods.push('<span class="mod">+16 integrity</span>');
     if (g.modifiers.energy) mods.push('<span class="mod">+1 energy</span>');
-    this.sectorline.innerHTML = `<span>sector ${g.sectorNum} / 2</span><span class="mods">${mods.join('')}</span>`;
+    if (this.meta.boons.length) {
+      mods.push(`<span class="mod boon" data-hint="boons">◇ ${this.meta.boons.length} boon${this.meta.boons.length > 1 ? 's' : ''}</span>`);
+    }
+    const w = g.world ? WORLDS[g.world] : null;
+    const where = w ? `${w.name} · depth ${g.depth} / ${MAP_ROWS}` : `lab · sector ${g.sectorNum} / 2`;
+    this.sectorline.innerHTML = `<span>${where}</span><span class="mods">${mods.join('')}</span>`;
+    if (g.phase === 'map') {
+      this.track.innerHTML = Array.from({ length: MAP_ROWS + 1 }, (_, r) => {
+        const cls = [r < g.depth ? 'done' : '', r === MAP_ROWS ? 'fight' : ''].filter(Boolean).join(' ');
+        return `<i class="${cls}"></i>`;
+      }).join('');
+      return;
+    }
     this.track.innerHTML = g.segments
       .map((s, i) => {
         const cls = [
           i < g.pos ? 'done' : '', i === g.pos ? 'here' : '',
-          s.feature === 'enemies' && s.revealed ? 'fight' : '', i === g.sector2Start ? 'edge' : '',
+          s.feature === 'enemies' && s.revealed ? 'fight' : '', !g.world && i === g.sector2Start ? 'edge' : '',
         ].filter(Boolean).join(' ');
         return `<i class="${cls}"></i>`;
       })
@@ -402,6 +464,8 @@ export class App {
   private renderOverlay() {
     const g = this.game;
     this.overlay.parentElement!.classList.toggle('fight', g.phase === 'combat' || g.phase === 'harvest');
+    this.mapEl.hidden = g.phase !== 'map';
+    this.mapEl.innerHTML = g.phase === 'map' ? this.mapHtml() : '';
     if (g.phase !== 'combat' || !g.combat) {
       this.overlay.innerHTML = '';
       return;
@@ -409,9 +473,46 @@ export class App {
     const n = g.combat.enemies.length;
     const sel = g.combat.hand.find((c) => c.uid === this.selected);
     const targeting = !!sel && needsTarget(sel) && !g.combatPlayable(sel);
+    this.overlay.classList.toggle('crowd', n >= 3);
     this.overlay.innerHTML = g.combat.enemies
       .map((e, i) => this.foeHtml(e, enemySlot(i, n) * 100, 100 / (n + 0.5), targeting))
       .join('');
+  }
+
+  private mapHtml(): string {
+    const g = this.game;
+    const map = g.map!;
+    const w = WORLDS[map.world];
+    const reach = new Set(g.reachable().map((n) => n.id));
+    const pos = (n: MapNode) => ({
+      x: ((n.col + 0.5) / 4) * 100,
+      y: 90 - (n.row / MAP_ROWS) * 80,
+    });
+    const lines: string[] = [];
+    for (const n of map.nodes) {
+      const a = pos(n);
+      for (const id of n.next) {
+        const m = map.nodes[id];
+        const b = pos(m);
+        const walked = n.visited && m.visited;
+        const open = g.mapNode === n.id && reach.has(m.id);
+        lines.push(`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="${walked ? 'walked' : open ? 'open' : ''}" />`);
+      }
+    }
+    const nodes = map.nodes.map((n) => {
+      const p = pos(n);
+      const hidden = n.hidden && !n.visited;
+      const kind = hidden ? 'hidden' : n.kind;
+      const cls = ['mnode', kind, reach.has(n.id) ? 'reach' : '', n.visited ? 'visited' : '', g.mapNode === n.id ? 'here' : '', n.flared ? 'flared' : '']
+        .filter(Boolean).join(' ');
+      const label = hidden ? 'Unknown' : NODE_NAME[n.kind];
+      return `<button class="${cls}" data-act="node" data-node="${n.id}" data-hint="node-${kind}"
+        style="left:${p.x}%;top:${p.y}%" ${reach.has(n.id) ? '' : 'aria-disabled="true"'} aria-label="${label}">${hidden ? '?' : NODE_GLYPH[n.kind]}</button>`;
+    }).join('');
+    return `
+      <div class="maptitle"><b>${w.name}</b> ${w.subtitle}</div>
+      <svg class="mapedges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines.join('')}</svg>
+      ${nodes}`;
   }
 
   private foeHtml(e: EnemyState, x: number, width: number, targeting: boolean): string {
@@ -427,7 +528,11 @@ export class App {
     if (intent.strength) parts.push(`<span class="dbf" data-hint="strength">+${intent.strength} str</span>`);
     if (intent.weak) parts.push(`<span class="dbf" data-hint="weak">weaken ${intent.weak}</span>`);
     if (intent.exposed) parts.push(`<span class="dbf" data-hint="exposed">expose ${intent.exposed}</span>`);
+    if (intent.allyStrength) parts.push(`<span class="dbf" data-hint="allies">+${intent.allyStrength} str allies</span>`);
+    if (intent.summon) parts.push('<span class="dbf" data-hint="summon">summon</span>');
     const chips: string[] = [`<span>${e.hp}/${e.maxHp}</span>`];
+    if (def.reflect) chips.push(`<span class="tagchip reflect ${e.block ? '' : 'off'}" data-hint="reflect">REFLECT</span>`);
+    if (def.splits && !e.split) chips.push('<span class="tagchip splits" data-hint="splits">SPLITS</span>');
     if (e.block) chips.push(`<span class="tagchip plate" data-hint="plate">▢${e.block}</span>`);
     if (e.status.tagged) chips.push('<span class="tagchip tag" data-hint="tag">TAGGED</span>');
     if (e.status.weak) chips.push(`<span class="tagchip weak" data-hint="weak">WEAK ${e.status.weak}</span>`);
@@ -475,7 +580,17 @@ export class App {
     }
     let hand = '';
     let bar = '';
-    if (g.phase === 'explore') {
+    if (g.phase === 'map') {
+      hand = g.sHand.length
+        ? g.sHand.map((c) => this.cardHtml(c, { dim: !!g.surveyPlayable(c) })).join('')
+        : '<p class="empty">no survey cards in hand</p>';
+      const pips = Array.from({ length: MAX_OXYGEN }, (_, i) => `<i class="${i < g.oxygen ? 'on' : ''}"></i>`).join('');
+      bar = `
+        <div class="pips o2" data-hint="oxygen" aria-label="${g.oxygen} oxygen">${pips}<span>o₂</span></div>
+        <button class="btn small" data-act="decks">decks</button>
+        <span class="spacer"></span>
+        <span class="maphint">tap a glowing node ▲</span>`;
+    } else if (g.phase === 'explore') {
       hand = g.sHand.length
         ? g.sHand.map((c) => this.cardHtml(c, { dim: !!g.surveyPlayable(c) })).join('')
         : '<p class="empty">no survey cards in hand</p>';
@@ -495,9 +610,18 @@ export class App {
         ? c.hand.map((card) => this.cardHtml(card, { dim: !!g.combatPlayable(card) })).join('')
         : '<p class="empty">hand empty</p>';
       const pips = Array.from({ length: c.energyCap }, (_, i) => `<i class="${i < c.energy ? 'on' : ''}"></i>`).join('');
+      let res = '';
+      if (g.world === 'kessra' || (g.hasBoon('resonant-core') && c.playedThisFight === 0)) {
+        const next = g.resonates();
+        const dots = g.world === 'kessra'
+          ? Array.from({ length: 3 }, (_, i) => `<i class="${i < c.playedThisTurn % 3 ? 'on' : ''}"></i>`).join('')
+          : '';
+        res = `<div class="resonance ${next ? 'ready' : ''}" data-hint="resonance" aria-label="resonance">${dots}${next ? '<span>×2</span>' : ''}</div>`;
+      }
       bar = `
         <div class="pips" data-hint="energy" aria-label="${c.energy} energy">${pips}<span>energy</span></div>
-        <div class="piles">draw ${c.draw.length}<br />used ${c.discard.length}</div>
+        ${res}
+        ${res ? '' : `<div class="piles">draw ${c.draw.length}<br />used ${c.discard.length}</div>`}
         <span class="spacer"></span>
         <button class="btn primary" data-act="end">end turn</button>`;
     } else {
@@ -527,21 +651,22 @@ export class App {
     if (g.phase === 'dead') {
       full = true;
       html = `
-        <div class="eyebrow">signal lost · section ${g.pos + 1} of ${g.segments.length}</div>
+        <div class="eyebrow">signal lost · ${g.world ? `${WORLDS[g.world].name}, depth ${g.depth}` : `lab, section ${g.pos + 1}`}</div>
         <h2>integrity lost</h2>
         <p>Clone #${pad(g.cloneNo)} stops. Somewhere behind you, the printer hums and warms.
         The next one will remember a little of this. Not enough.</p>
         <div class="actions"><button class="btn primary" data-act="reprint">print #${pad(g.cloneNo + 1)}</button></div>`;
     } else if (g.phase === 'won') {
       full = true;
-      html = `
-        <div class="eyebrow">the first is quiet · clone #${pad(g.cloneNo)}</div>
-        <h2>the signal is closer</h2>
-        <p>It falls the way a building falls. Beyond it, a window, and stars that were never on any chart.
-        The signal pulses once, like a heartbeat. It knows your name. Both of them.</p>
-        <p><em>End of the vertical slice. Integrity ${g.hp}/${g.maxHp}, ${g.combatDeck.length + g.surveyDeck.length} cards,
-        ${[...g.combatDeck, ...g.surveyDeck].reduce((n, c) => n + c.genes.length, 0)} genes spliced.</em></p>
-        <div class="actions"><button class="btn primary" data-act="reprint">print again</button></div>`;
+      html = this.endingHtml();
+    } else if (g.phase === 'mainframe') {
+      full = true;
+      html = this.mainframeHtml();
+    } else if (g.phase === 'boon') {
+      full = true;
+      html = this.boonHtml();
+    } else if (g.phase === 'event') {
+      html = this.eventHtml();
     } else if (g.phase === 'modifier') {
       full = true;
       html = this.modifierHtml();
@@ -557,6 +682,7 @@ export class App {
           <li><b class="c">tactics</b>Amber cards cost energy. Read what each enemy intends, then strike first.</li>
           <li><b class="b">biomass</b>Nothing heals you but what you kill. Eat it to mend, or render it to splice genes into your cards at a pod.</li>
           <li><b class="v">splice</b>Some cards reach further: empower another card in your hand, or turn the damage they deal straight into biomass.</li>
+          <li><b class="w">worlds</b>Beat The First to reach the mainframe and crash-land on an alien world. Its boss grants a boon that every future clone keeps.</li>
         </ul>
         <div class="actions"><button class="btn primary" data-act="wake">wake up</button></div>`;
     } else if (this.sheet === 'decks') {
@@ -579,6 +705,92 @@ export class App {
     this.sheetEl.hidden = !html;
     this.sheetEl.classList.toggle('full', full);
     this.sheetEl.innerHTML = html;
+  }
+
+  private mainframeHtml(): string {
+    const g = this.game;
+    const cards = WORLD_ORDER.map((id) => {
+      const w = WORLDS[id];
+      const cleared = this.meta.worldsCleared.includes(id);
+      const status = !w.playable ? 'signal lost' : cleared ? 'cleared' : 'reachable';
+      return `
+        <button class="card big world ${id} ${w.playable ? '' : 'locked'}" data-act="world" data-world="${id}" ${w.playable ? '' : 'disabled'}>
+          <span class="status">${status}</span>
+          <span class="name">${w.name}</span>
+          <span class="sub">${w.subtitle}</span>
+          <span class="text">${w.pitch}</span>
+        </button>`;
+    });
+    return `
+      <div class="eyebrow">the first is quiet · clone #${pad(g.cloneNo)}</div>
+      <h2>mainframe online</h2>
+      <p>Behind The First, a console still warm from its hands. Three coordinates, each one a seed-probe
+      the project sent before the end. Pick one. The ship will not survive the landing.</p>
+      <div class="offers">${cards.join('')}</div>`;
+  }
+
+  private eventHtml(): string {
+    const g = this.game;
+    const ev = EVENTS[g.eventId!];
+    const log = `<blockquote class="log"><span>log recovered</span>${esc(LOGS[ev.log])}</blockquote>`;
+    if (g.eventResult !== null) {
+      return `
+        <div class="eyebrow">${WORLDS[g.world!].name}</div>
+        <h2>${ev.title.toLowerCase()}</h2>
+        <p>${esc(g.eventResult)}</p>
+        ${log}
+        <div class="actions"><button class="btn primary" data-act="event-leave">walk on</button></div>`;
+    }
+    const opts = ev.options.map((o, i) => `
+      <button class="gene evopt" data-act="event-opt" data-i="${i}">
+        <b>${esc(o.label)}</b>
+        <small>${esc(o.detail)}</small>
+      </button>`);
+    return `
+      <div class="eyebrow">${WORLDS[g.world!].name}</div>
+      <h2>${ev.title.toLowerCase()}</h2>
+      <p>${esc(ev.text)}</p>
+      <div class="evopts">${opts.join('')}</div>
+      ${log}`;
+  }
+
+  private boonHtml(): string {
+    const g = this.game;
+    const w = WORLDS[g.world!];
+    const cards = g.boonOffers.map((id) => {
+      const b = BOONS[id];
+      return `
+        <button class="card big mod boon" data-act="boon" data-boon="${id}">
+          <span class="glyph" aria-hidden="true">${b.glyph}</span>
+          <span class="name">${b.name}</span>
+          <span class="text">${b.text}</span>
+          <span class="flavor">${b.flavor}</span>
+        </button>`;
+    });
+    return `
+      <div class="eyebrow">${w.name} is silent · permanent</div>
+      <h2>something stays with you</h2>
+      <p>This one is not for this run. It is written into the printer itself: every clone after you is born with it.
+      Choose one.</p>
+      <div class="offers two">${cards.join('')}</div>`;
+  }
+
+  private endingHtml(): string {
+    const g = this.game;
+    const w = g.world ? WORLDS[g.world] : null;
+    const genes = [...g.combatDeck, ...g.surveyDeck].reduce((n, c) => n + c.genes.length, 0);
+    const worldLogs = w ? Object.keys(LOGS).filter((k) => k.startsWith(w.id[0])) : [];
+    const found = worldLogs.filter((k) => this.meta.logs.includes(k)).length;
+    const boons = this.meta.boons.map((id) => BOONS[id]?.name).filter(Boolean).join(', ');
+    return `
+      <div class="eyebrow">world cleared · clone #${pad(g.cloneNo)}</div>
+      <h2>${w ? w.endingTitle : 'the signal is closer'}</h2>
+      <p>${w ? esc(w.ending) : ''}</p>
+      ${w ? `<blockquote class="log"><span>log recovered</span>${esc(LOGS[w.bossLog])}</blockquote>` : ''}
+      <p><em>Integrity ${g.hp}/${g.maxHp} · ${g.combatDeck.length + g.surveyDeck.length} cards · ${genes} genes ·
+      logs ${found}/${worldLogs.length}${boons ? ` · boons: ${boons}` : ''}</em></p>
+      <p><em>Mireth and Orun are still out there. Their signals come back in a later update.</em></p>
+      <div class="actions"><button class="btn primary" data-act="reprint">print #${pad(g.cloneNo + 1)}</button></div>`;
   }
 
   private harvestHtml(): string {

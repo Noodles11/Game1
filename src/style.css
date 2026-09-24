@@ -883,6 +883,7 @@ button:focus-visible {
 .sheet .rules .s { color: var(--cryo); }
 .sheet .rules .b { color: var(--flesh); }
 .sheet .rules .v { color: var(--signal); }
+.sheet .rules .w { color: #9fe6f0; }
 
 .actions {
   display: flex;
@@ -1080,4 +1081,330 @@ button:focus-visible {
     border-left: 1px solid var(--line);
     border-right: 1px solid var(--line);
   }
+}
+
+/* ------------------------------------------------------------ node map */
+
+.mapview {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background:
+    radial-gradient(80% 60% at 50% 10%, rgba(127, 216, 232, 0.14), transparent 70%),
+    radial-gradient(60% 50% at 20% 90%, rgba(127, 216, 232, 0.08), transparent 70%),
+    #0a1116;
+  overflow: hidden;
+}
+
+.maptitle {
+  position: absolute;
+  top: 8px;
+  left: var(--gutter);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+
+.maptitle b {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  color: #bfeef5;
+  margin-right: 6px;
+}
+
+.mapedges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.mapedges line {
+  stroke: #2d4552;
+  stroke-width: 0.5;
+  stroke-dasharray: 1.2 1.2;
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1.5px;
+}
+
+.mapedges line.walked {
+  stroke: #9fe6f0;
+  stroke-dasharray: none;
+  stroke-width: 2px;
+}
+
+.mapedges line.open {
+  stroke: #e3a33b;
+  stroke-dasharray: none;
+  stroke-width: 2px;
+}
+
+.mnode {
+  --ring: var(--bone-dim);
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 2px solid var(--ring);
+  background: #0d161c;
+  color: var(--ring);
+  font-size: 17px;
+  line-height: 1;
+  opacity: 0.55;
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+
+.mnode.fight { --ring: var(--flesh); }
+.mnode.elite { --ring: #e0606c; border-width: 3px; font-size: 20px; }
+.mnode.locker { --ring: var(--sodium); }
+.mnode.pod { --ring: var(--cryo); }
+.mnode.event { --ring: var(--signal); }
+.mnode.hidden { --ring: #5b6a72; border-style: dashed; }
+
+.mnode.boss {
+  --ring: #bfeef5;
+  width: 58px;
+  height: 58px;
+  margin: -29px 0 0 -29px;
+  font-size: 26px;
+  box-shadow: 0 0 22px rgba(127, 216, 232, 0.35);
+}
+
+.mnode.visited {
+  opacity: 0.9;
+  background: color-mix(in srgb, var(--ring) 22%, #0d161c);
+}
+
+.mnode.here {
+  opacity: 1;
+  box-shadow: 0 0 0 3px #0a1116, 0 0 0 5px #9fe6f0;
+}
+
+.mnode.reach {
+  opacity: 1;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--ring) 60%, transparent);
+  animation: breathe 1.6s ease-in-out infinite;
+}
+
+.mnode.reach:active {
+  transform: scale(0.92);
+}
+
+.mnode.flared::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1px solid var(--flesh);
+  opacity: 0.7;
+}
+
+.mnode[aria-disabled="true"] {
+  cursor: default;
+}
+
+.maphint {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sodium);
+}
+
+/* ---------------------------------------------------------- resonance */
+
+.resonance {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7fb8c4;
+}
+
+.resonance i {
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  border: 1px solid #9fe6f0;
+}
+
+.resonance i.on {
+  background: #9fe6f0;
+}
+
+.resonance.ready {
+  color: #d6f6fb;
+  text-shadow: 0 0 8px rgba(127, 216, 232, 0.8);
+}
+
+.floater.res {
+  color: #bfeef5;
+  font-size: 16px;
+  text-shadow: 0 0 10px rgba(127, 216, 232, 0.9), 0 2px 6px #000;
+}
+
+.tagchip.reflect,
+.tagchip.splits {
+  color: #9fe6f0;
+}
+
+.tagchip.off {
+  opacity: 0.4;
+  text-shadow: none;
+}
+
+.sectorline .mod.boon {
+  color: #bfeef5;
+  text-shadow: 0 0 6px rgba(127, 216, 232, 0.5);
+}
+
+/* ----------------------------------------------------------- world sheets */
+
+.card.world {
+  --accent: #9fe6f0;
+  gap: 4px;
+  padding-top: 12px;
+  background:
+    radial-gradient(120% 70% at 50% 0%, rgba(127, 216, 232, 0.18), transparent 70%),
+    #111a20;
+  border-color: #3a6674;
+}
+
+.card.world.mireth {
+  --accent: var(--toxin);
+  background: radial-gradient(120% 70% at 50% 0%, rgba(127, 212, 138, 0.14), transparent 70%), #111812;
+}
+
+.card.world.orun {
+  --accent: var(--sodium);
+  background: radial-gradient(120% 70% at 50% 0%, rgba(227, 163, 59, 0.14), transparent 70%), #1a1510;
+}
+
+.card.world .status {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.card.world .name {
+  margin-top: 6px;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 18px;
+  text-transform: lowercase;
+}
+
+.card.world .sub {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--bone-dim);
+}
+
+.card.world.locked {
+  opacity: 0.4;
+  filter: saturate(0.4);
+}
+
+.offers.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.card.boon {
+  --accent: #9fe6f0;
+  background:
+    radial-gradient(120% 60% at 50% 0%, rgba(127, 216, 232, 0.18), transparent 70%),
+    #111a20;
+  border-color: #3a6674;
+}
+
+.evopts {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+
+.gene.evopt {
+  grid-template-columns: 1fr;
+}
+
+.gene.evopt small {
+  color: var(--bone-dim);
+}
+
+.log {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--signal);
+  background: rgba(176, 111, 224, 0.07);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #d6c8e4;
+}
+
+.log span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--signal);
+}
+
+/* ------------------------------------------------ crowded fights, fixes */
+
+.foe > * {
+  max-width: 100%;
+}
+
+.overlay.crowd .intent {
+  white-space: normal;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px 5px;
+  padding: 2px 4px;
+  font-size: 10px;
+}
+
+.overlay.crowd .intent .atk {
+  font-size: 12px;
+}
+
+.overlay.crowd .foe .name {
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  line-height: 1.15;
+}
+
+.overlay.crowd .foe .hp {
+  width: 100%;
+}
+
+.pips span {
+  white-space: nowrap;
+}
+
+.resonance span {
+  margin-left: 2px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.card.world,
+.card.boon {
+  aspect-ratio: auto;
+  min-height: 190px;
 }
