@@ -83,8 +83,8 @@ void main() {
   // Colour plate: saturated, reasonably bright areas become a spot-ink screen.
   float mx = max(cc.r, max(cc.g, cc.b));
   float mn = min(cc.r, min(cc.g, cc.b));
-  float sat = (mx - mn) / (mx + 1e-3);
-  float cv = smoothstep(0.12, 0.45, sat) * smoothstep(0.06, 0.32, mx);
+  // absolute chroma, so dark near-greys stay neutral and only real colour prints in spot ink
+  float cv = smoothstep(0.04, 0.22, mx - mn);
   float cd = screen(px + 1.3, 0.26, 3.6 * dpr);
   float caa = 1.2 / (3.6 * dpr);
   float colr = 1.0 - smoothstep(sqrt(cv) - caa, sqrt(cv) + caa, cd);

@@ -46,21 +46,24 @@ interface Biome {
   /** Rough rock arches instead of bulkhead rings. */
   rough: boolean;
   texture: 'hull' | 'crystal';
+  /** Colour distance fades into. Far layers sink into it so they stop competing with near ones. */
+  haze: string;
   flora: boolean;
 }
 
 const BIOMES: Record<string, Biome> = {
   lab: {
-    faces: ['#1b1d22', '#23262c', '#2d3036', '#2a2522', '#352e29', '#2a2522', '#2d3036', '#23262c'],
+    // ceiling, upper walls, walls (painted green hull), lower walls, rust-ochre deck
+    faces: ['#302e2a', '#2b312e', '#25423c', '#322923', '#3b2f26', '#322923', '#25423c', '#2b312e'],
     lamp: INK.sodium, glow: '227,163,59', lampOff: '#3a3226',
     ring: [INK.rust, '#2e2a28'], exit: ['#fff6e0', '#e8d3a8', '#6b5d45'],
-    crystals: false, pipes: true, backdrop: false, rough: false, texture: 'hull', flora: false,
+    crystals: false, pipes: true, backdrop: false, rough: false, texture: 'hull', flora: false, haze: '#27231f',
   },
   kessra: {
     faces: ['#131c25', '#192731', '#1f313d', '#17232c', '#213746', '#17232c', '#1f313d', '#192731'],
     lamp: '#9fe6f0', glow: '127,216,232', lampOff: '#24343e',
     ring: ['#23404d', '#1b2a34'], exit: ['#f2fbff', '#b8e6f0', '#3f6a7a'],
-    crystals: true, pipes: false, backdrop: true, rough: true, texture: 'crystal', flora: true,
+    crystals: true, pipes: false, backdrop: true, rough: true, texture: 'crystal', flora: true, haze: '#12242d',
   },
 };
 
@@ -379,7 +382,11 @@ export class Stage {
     } else {
       const first = Math.max(0, Math.floor(this.cam) - 1);
       const lastSeg = Math.min(g.segments.length - 1, Math.floor(this.cam) + DRAW_AHEAD);
-      for (let i = lastSeg; i >= first; i--) this.drawSection(i);
+      for (let i = lastSeg; i >= first; i--) {
+        this.drawSection(i);
+        // depth haze: everything drawn so far (this layer and those behind it) sinks a little further
+        if (i - this.cam > 0.5) this.veil(0.3);
+      }
     }
 
     const inFight = g.phase === 'combat' || g.phase === 'harvest';
@@ -389,6 +396,15 @@ export class Stage {
     this.drawOverlays(inFight);
     if (this.print) this.print.render(this.buf, this.dpr, this.time);
     else this.plain?.drawImage(this.buf, 0, 0);
+  }
+
+  /** A translucent sheet of haze over the whole view. */
+  private veil(alpha: number) {
+    const { ctx } = this;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = this.biome.haze;
+    ctx.fillRect(-20, -20, this.W + 40, this.H + 40);
+    ctx.globalAlpha = 1;
   }
 
   /** A fork in the tunnel: a wall with one opening per path ahead. */
@@ -601,7 +617,7 @@ export class Stage {
       let col = faceBase[k];
       if (lampOn && !hidden) col = mix(col, bio.lamp, 0.07 * (1 - fogMid));
       if (seg.feature === 'exit') col = mix(col, bio.exit[1], 0.25);
-      ctx.fillStyle = mix(col, INK.void, hidden ? 0.85 : fogMid);
+      ctx.fillStyle = hidden ? mix(col, INK.void, 0.85) : mix(col, bio.haze, fogMid);
       fillPoly(ctx, [near[k], near[(k + 1) % 8], far[(k + 1) % 8], far[k]]);
     }
     if (!hidden) {
@@ -925,30 +941,76 @@ export class Stage {
         ctx.fillRect(x - 1, y - 1, 2, 2);
       }
     } else {
-      for (let k = 0; k < 2; k++) {
-        const [x, y] = this.quadAt(q, (noise(seed + k * 7) + 1) / 2, (noise(seed + k * 9) + 1) / 2);
-        const r = Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]) * (0.12 + Math.abs(noise(seed + k)) * 0.15);
-        const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-        g.addColorStop(0, `rgba(96,52,32,${0.35 * a})`);
-        g.addColorStop(1, 'rgba(96,52,32,0)');
-        ctx.fillStyle = g;
-        ctx.fillRect(x - r, y - r, r * 2, r * 2);
-      }
-      if (!isFloor) {
-        ctx.fillStyle = `rgba(140,133,116,${0.5 * a})`;
-        for (let k = 0; k < 7; k++) {
-          const [x, y] = this.quadAt(q, 0.12 + k * 0.125, 0.5);
-          ctx.fillRect(x - 0.8, y - 0.8, 1.6, 1.6);
-        }
-      } else if (noise(seed) > 0.4) {
-        // a strip of worn hazard paint
-        ctx.fillStyle = `rgba(227,163,59,${0.12 * a})`;
-        for (let k = 0; k < 6; k++) {
-          fillPoly(ctx, [this.quadAt(q, k / 6, 0.45), this.quadAt(q, k / 6 + 0.07, 0.45), this.quadAt(q, k / 6 + 0.1, 0.55), this.quadAt(q, k / 6 + 0.03, 0.55)]);
-        }
-      }
+      this.hullPanels(q, seed, a, isFloor);
     }
     ctx.restore();
+  }
+
+  /** Lab hull: riveted plates with bevels, a painted stripe on the walls, deck plating and rust. */
+  private hullPanels(q: Pt[], seed: number, a: number, isFloor: boolean) {
+    const { ctx } = this;
+    const at = (u: number, v: number) => this.quadAt(q, u, v);
+    const quad = (u0: number, v0: number, u1: number, v1: number): Pt[] => [at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)];
+    const wide = Math.hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]);
+    // two plates along the section, each with a dark inset and a lit top edge
+    for (const [v0, v1] of [[0.06, 0.47], [0.53, 0.94]]) {
+      ctx.fillStyle = `rgba(10,9,8,${0.28 * a})`;
+      fillPoly(ctx, quad(0.1, v0, 0.9, v1));
+      ctx.strokeStyle = `rgba(241,231,207,${0.35 * a})`;
+      ctx.lineWidth = Math.max(0.8, wide * 0.012);
+      const e = quad(0.1, v0, 0.9, v1);
+      ctx.beginPath();
+      ctx.moveTo(e[0][0], e[0][1]);
+      ctx.lineTo(e[1][0], e[1][1]);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(10,9,8,${0.55 * a})`;
+      ctx.beginPath();
+      ctx.moveTo(e[1][0], e[1][1]);
+      ctx.lineTo(e[2][0], e[2][1]);
+      ctx.lineTo(e[3][0], e[3][1]);
+      ctx.stroke();
+      // rivets at the plate corners
+      ctx.fillStyle = `rgba(241,231,207,${0.6 * a})`;
+      const r = Math.max(0.9, wide * 0.012);
+      for (const [u, v] of [[0.16, v0 + 0.05], [0.84, v0 + 0.05], [0.16, v1 - 0.05], [0.84, v1 - 0.05]]) {
+        const [x, y] = at(u, v);
+        ctx.fillRect(x - r / 2, y - r / 2, r, r);
+      }
+    }
+    if (isFloor) {
+      // deck: diagonal tread lines, and hazard chevrons in some sections
+      ctx.strokeStyle = `rgba(10,9,8,${0.35 * a})`;
+      ctx.lineWidth = Math.max(0.6, wide * 0.006);
+      for (let k = 0; k < 9; k++) {
+        const u = 0.12 + k * 0.095;
+        const p0 = at(u, 0.1);
+        const p1 = at(u + 0.05, 0.9);
+        ctx.beginPath();
+        ctx.moveTo(p0[0], p0[1]);
+        ctx.lineTo(p1[0], p1[1]);
+        ctx.stroke();
+      }
+      if (noise(seed) > 0.2) {
+        for (let k = 0; k < 7; k++) {
+          ctx.fillStyle = k % 2 ? `rgba(19,17,19,${0.8 * a})` : `rgba(238,164,35,${0.85 * a})`;
+          fillPoly(ctx, quad(k / 7, 0.46, (k + 1) / 7, 0.54));
+        }
+      }
+    } else {
+      // a painted stripe runs down the corridor, with a stencilled number now and then
+      ctx.fillStyle = `rgba(218,65,43,${0.75 * a})`;
+      fillPoly(ctx, quad(0.62, 0, 0.72, 1));
+      ctx.fillStyle = `rgba(241,231,207,${0.7 * a})`;
+      fillPoly(ctx, [at(0.73, 0), at(0.75, 0), at(0.75, 1), at(0.73, 1)]);
+    }
+    // rust bloom
+    const [x, y] = at((noise(seed + 7) + 1) / 2, (noise(seed + 9) + 1) / 2);
+    const r = wide * (0.15 + Math.abs(noise(seed)) * 0.2);
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(120,54,24,${0.45 * a})`);
+    g.addColorStop(1, 'rgba(120,54,24,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
   }
 
   /** Jagged copy of a polygon: each edge split, points pushed in or out. */
@@ -1175,7 +1237,7 @@ export class Stage {
     if (lampOn && !hidden) {
       const r = this.unit(z) * 0.9;
       const grd = ctx.createRadialGradient(lx, ly, 0, lx, ly, r);
-      grd.addColorStop(0, `rgba(${bio.glow},0.4)`);
+      grd.addColorStop(0, `rgba(${bio.glow},0.22)`);
       grd.addColorStop(1, `rgba(${bio.glow},0)`);
       ctx.fillStyle = grd;
       ctx.fillRect(lx - r, ly - r * 0.2, r * 2, r * 1.2);
