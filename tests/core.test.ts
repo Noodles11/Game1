@@ -1155,3 +1155,41 @@ describe('medic cards', () => {
     expect(genesFor(free).some((x) => x.id === 'frugal')).toBe(false);
   });
 });
+
+describe('card effects resolve before a fight ends', () => {
+  it('a killing Cannibal Print still lets you choose; the fight ends after', () => {
+    const g = new Game(5);
+    const can: CardInstance = { uid: 9500, defId: 'cannibal', genes: [] };
+    const sc: CardInstance = { uid: 9501, defId: 'scalpel', genes: [] };
+    g.combatDeck.push(can, sc);
+    fightIn(g, ['tick'], null);
+    const c = g.combat!;
+    c.hand = [can, sc];
+    c.energy = 3;
+    c.enemies[0].hp = 1;
+    g.playCombat(can.uid, c.enemies[0].uid);
+    expect(g.phase).toBe('combat');
+    expect(c.pendingPick?.kind).toBe('cannibal');
+    g.pickCard(sc.uid);
+    expect(can.imprint?.damage).toBe(6);
+    expect(g.phase).toBe('harvest');
+  });
+
+  it('skipping the choice also ends the fight', () => {
+    const g = new Game(5);
+    const donor: CardInstance = { uid: 9510, defId: 'donor', genes: [] };
+    const hook: CardInstance = { uid: 9511, defId: 'hook', genes: [] };
+    const sc: CardInstance = { uid: 9512, defId: 'scalpel', genes: [] };
+    g.combatDeck.push(donor, hook, sc);
+    fightIn(g, ['tick'], null);
+    const c = g.combat!;
+    c.hand = [sc, donor, hook];
+    c.energy = 3;
+    c.enemies[0].hp = 1;
+    c.pendingPick = { kind: 'donor', source: donor.uid, times: 1 };
+    g.playCombat(sc.uid, c.enemies[0].uid);
+    expect(g.phase).toBe('combat');
+    g.skipPick();
+    expect(g.phase).toBe('harvest');
+  });
+});

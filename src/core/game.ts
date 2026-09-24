@@ -76,6 +76,8 @@ export interface CombatState {
   /** Every card uid played this fight. */
   played: number[];
   pendingPick: PendingPick | null;
+  /** Every enemy is dead, but a card's effect still waits on the player. The fight ends once it resolves. */
+  victoryPending?: boolean;
 }
 
 export interface Offer {
@@ -1163,8 +1165,22 @@ export class Game {
     c.lastWasAttack = s.damage > 0;
     this.message = '';
 
-    if (this.livingEnemies().length === 0) this.winCombat();
+    if (this.livingEnemies().length === 0) this.endFightWhenResolved();
     return true;
+  }
+
+  /** Win the fight, unless a card's permanent effect still needs a choice: resolve that first. */
+  private endFightWhenResolved() {
+    const c = this.combat!;
+    // Empower only lasts this fight: nothing left to give it to.
+    c.pendingEmpower = null;
+    if (c.pendingPick) {
+      c.victoryPending = true;
+      this.message = 'The last one falls. Finish what the card started.';
+      return;
+    }
+    c.victoryPending = false;
+    this.winCombat();
   }
 
   /** Apply one card's effects once. Resonance calls this twice. */
@@ -1315,11 +1331,15 @@ export class Game {
       if (v.block > 0) this.imprint(source, 'block', v.block);
       if (v.tag > 0) this.imprint(source, 'tag', v.tag);
     }
+    if (c.victoryPending) this.endFightWhenResolved();
     return true;
   }
 
   skipPick(): void {
-    if (this.combat) this.combat.pendingPick = null;
+    const c = this.combat;
+    if (!c) return;
+    c.pendingPick = null;
+    if (c.victoryPending) this.endFightWhenResolved();
   }
 
   /** Unstable: a free random gene, and one time in three a defect. */
