@@ -41,7 +41,7 @@ const HINTS: Record<string, string> = {
   biomass: 'Biomass — harvested from the dead. Eat it to heal, or spend it at a splice pod to evolve a card.',
   energy: 'Energy — spend it to play Tactics cards. Refills at the start of every combat turn.',
   oxygen: 'Oxygen — spend it to play Survey cards. Refills each time you act while exploring.',
-  plate: 'Plating — your plating cuts every single hit by its value and is not used up: with 5 plating, a 3×2 attack deals nothing and 7×2 deals 2×2. Enemy plating soaks damage until it is spent. Both clear at the start of the next turn.',
+  plate: 'Plating — cuts every single hit by its value and is not used up: with 5 plating, a 3×2 attack deals nothing and 7×2 deals 2×2. Works the same for enemies: hit plated foes hard, or Shatter it off. Clears at the start of the owner\'s next turn.',
   weak: 'Weaken — deals 25% less damage while it lasts. Fades by 1 each turn.',
   exposed: 'Exposed — takes 50% more damage from everything. Fades by 1 each turn.',
   tag: 'Tagged — kill it while tagged and its biomass yields double when harvested.',

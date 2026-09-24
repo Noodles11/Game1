@@ -749,3 +749,18 @@ describe('plating', () => {
     expect(g.hp).toBe(hp - 4);
   });
 });
+
+describe('enemy plating', () => {
+  it('cuts every hit on an enemy and is not used up; Shatter strips it', () => {
+    const g = new Game(1);
+    fightIn(g, ['crawler']);
+    const e = g.livingEnemies()[0];
+    const hit = (n: number) => (g as unknown as { damageEnemy(e: unknown, a: number): number }).damageEnemy(e, n);
+    e.block = 4;
+    const hp = e.hp;
+    expect(hit(3)).toBe(0);
+    expect(hit(6)).toBe(2);
+    expect(e.block).toBe(4);
+    expect(e.hp).toBe(hp - 2);
+  });
+});

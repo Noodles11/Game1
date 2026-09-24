@@ -8,9 +8,9 @@ export const ENEMIES: Record<string, EnemyDef> = {
     biomass: 3,
     flavor: 'It fed on the hull. Now it has found something softer.',
     pattern: [
-      { label: 'Frenzy', attack: 2, hits: 3 },
-      { label: 'Burrow', block: 5, attack: 3 },
-      { label: 'Bite', attack: 3, hits: 2 },
+      { label: 'Frenzy', attack: 5, hits: 2 },
+      { label: 'Burrow', block: 2, attack: 5 },
+      { label: 'Bite', attack: 8 },
     ],
   },
   copy: {
@@ -20,9 +20,9 @@ export const ENEMIES: Record<string, EnemyDef> = {
     biomass: 5,
     flavor: 'A misprint. It has your hands. It wants the rest.',
     pattern: [
-      { label: 'Claw', attack: 8 },
+      { label: 'Claw', attack: 9 },
       { label: 'Weep', weak: 2, line: '“why did they keep you”' },
-      { label: 'Maul', attack: 12 },
+      { label: 'Maul', attack: 13 },
     ],
   },
   husk: {
@@ -32,8 +32,8 @@ export const ENEMIES: Record<string, EnemyDef> = {
     biomass: 6,
     flavor: 'Maintenance drone. It wears a face it found in the vats.',
     pattern: [
-      { label: 'Plate & Jab', block: 7, attack: 6 },
-      { label: 'Sweep', attack: 13 },
+      { label: 'Plate & Jab', block: 3, attack: 8 },
+      { label: 'Sweep', attack: 14 },
       { label: 'Diagnose', exposed: 2, line: 'SPECIMEN DEFECTIVE. RECYCLING.' },
     ],
   },
@@ -45,8 +45,8 @@ export const ENEMIES: Record<string, EnemyDef> = {
     flavor: 'It doesn’t see you. It doesn’t need to.',
     pattern: [
       { label: 'Lock On', exposed: 1, line: 'TARGET ACQUIRED' },
-      { label: 'Volley', attack: 4, hits: 2 },
-      { label: 'Overcharge', strength: 2, block: 4 },
+      { label: 'Volley', attack: 7, hits: 2 },
+      { label: 'Overcharge', strength: 2, block: 2 },
     ],
   },
   bloom: {
@@ -56,9 +56,9 @@ export const ENEMIES: Record<string, EnemyDef> = {
     biomass: 6,
     flavor: 'It grew from what the vats couldn’t use. It is still growing.',
     pattern: [
-      { label: 'Swell', block: 8 },
+      { label: 'Swell', block: 3 },
       { label: 'Spores', weak: 2, line: 'the air tastes like copper' },
-      { label: 'Thrash', attack: 5, hits: 2 },
+      { label: 'Thrash', attack: 11 },
     ],
   },
   first: {
@@ -69,9 +69,9 @@ export const ENEMIES: Record<string, EnemyDef> = {
     flavor: 'The original. Every clone since was a rough draft of this.',
     pattern: [
       { label: 'Recognize', weak: 1, line: 'i remember being you' },
-      { label: 'Backhand', attack: 14 },
-      { label: 'We Are Legion', strength: 3, block: 10, line: 'they are all still in here' },
-      { label: 'Cascade', attack: 6, hits: 3 },
+      { label: 'Backhand', attack: 15 },
+      { label: 'We Are Legion', strength: 3, block: 4, line: 'they are all still in here' },
+      { label: 'Cascade', attack: 10, hits: 2 },
     ],
   },
   choir: {
@@ -81,9 +81,9 @@ export const ENEMIES: Record<string, EnemyDef> = {
     biomass: 12,
     flavor: 'Every clone that died here. They learned to sing together.',
     pattern: [
-      { label: 'Hymn', attack: 10, line: 'WE WERE YOU FIRST' },
-      { label: 'Swell', block: 12, strength: 2, line: 'come home come home come home' },
-      { label: 'Crescendo', attack: 5, hits: 3 },
+      { label: 'Hymn', attack: 11, line: 'WE WERE YOU FIRST' },
+      { label: 'Swell', block: 4, strength: 2, line: 'come home come home come home' },
+      { label: 'Crescendo', attack: 9, hits: 2 },
       { label: 'Dirge', weak: 2, exposed: 1, line: 'you are the same meat' },
     ],
   },
@@ -97,9 +97,9 @@ export const ENEMIES: Record<string, EnemyDef> = {
     splits: true,
     flavor: 'A splinter that learned to walk. Break it and there are two.',
     pattern: [
-      { label: 'Nip', attack: 5 },
-      { label: 'Skitter', attack: 3, hits: 2 },
       { label: 'Nip', attack: 6 },
+      { label: 'Skitter', attack: 8 },
+      { label: 'Nip', attack: 7 },
     ],
   },
   crawler: {
@@ -109,9 +109,9 @@ export const ENEMIES: Record<string, EnemyDef> = {
     biomass: 6,
     flavor: 'It grows armour faster than you can cut it. Hit it before it finishes.',
     pattern: [
-      { label: 'Harden', block: 8 },
-      { label: 'Grind', block: 6, attack: 8 },
-      { label: 'Crush', attack: 16 },
+      { label: 'Harden', block: 4 },
+      { label: 'Grind', block: 3, attack: 10 },
+      { label: 'Crush', attack: 17 },
     ],
   },
   geode: {
@@ -123,7 +123,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: [
       { label: 'Hum', allyStrength: 2, line: 'mmmmmmmmmm' },
       { label: 'Shriek', weak: 1, exposed: 1 },
-      { label: 'Chorus', allyStrength: 2, block: 6 },
+      { label: 'Chorus', allyStrength: 2, block: 2 },
     ],
   },
   refractor: {
@@ -134,9 +134,9 @@ export const ENEMIES: Record<string, EnemyDef> = {
     reflect: 0.5,
     flavor: 'A walking mirror. While it is plated, half of every blow comes back to you.',
     pattern: [
-      { label: 'Polish', block: 12 },
-      { label: 'Lance', attack: 13 },
-      { label: 'Glare', attack: 5, hits: 2, block: 6 },
+      { label: 'Polish', block: 4 },
+      { label: 'Lance', attack: 14 },
+      { label: 'Glare', attack: 10, block: 3 },
     ],
   },
   prism: {
@@ -146,19 +146,19 @@ export const ENEMIES: Record<string, EnemyDef> = {
     biomass: 18,
     flavor: 'The oldest thing in the caves. Every shardling is a piece she let go of.',
     pattern: [
-      { label: 'Refract', attack: 8, hits: 2 },
+      { label: 'Refract', attack: 11, hits: 2 },
       { label: 'Glare', weak: 2, exposed: 1, line: 'I SEE EVERY COPY OF YOU' },
-      { label: 'Prism Beam', attack: 18 },
-      { label: 'Facet', block: 14 },
+      { label: 'Prism Beam', attack: 19 },
+      { label: 'Facet', block: 5 },
     ],
     phase2: {
       below: 0.5,
       line: 'THEN BREAK. AND BREAK. AND BREAK.',
       pattern: [
-        { label: 'Shed', summon: 'shardling', attack: 8 },
-        { label: 'Spectrum', attack: 7, hits: 3 },
-        { label: 'Shed', summon: 'shardling', block: 10 },
-        { label: 'Prism Beam', attack: 20 },
+        { label: 'Shed', summon: 'shardling', attack: 9 },
+        { label: 'Spectrum', attack: 11, hits: 2 },
+        { label: 'Shed', summon: 'shardling', block: 4 },
+        { label: 'Prism Beam', attack: 21 },
       ],
     },
   },

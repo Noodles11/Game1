@@ -969,13 +969,13 @@ export class Game {
     }
   }
 
-  /** Damages an enemy and returns how much of it actually landed (after their plating). */
+  /** Damages an enemy with one hit and returns how much landed (after their plating). */
   private damageEnemy(e: EnemyState, amount: number): number {
     if (amount <= 0) return 0;
     const def = ENEMIES[e.defId];
     const plated = e.block > 0;
+    // Plating works like the player's: it cuts every hit by its value and is not used up.
     const blocked = Math.min(e.block, amount);
-    e.block -= blocked;
     const dealt = amount - blocked;
     e.hp -= dealt;
     this.emit({ type: 'enemyHit', uid: e.uid, amount: dealt, blocked });

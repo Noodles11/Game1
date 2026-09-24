@@ -259,3 +259,14 @@ Sections are no longer always closed corridors. Each segment has a `shape`:
 - Stepping from a cavern into a tunnel shows a **cliff face** around the tunnel mouth.
 - Kessra **junctions** are a cliff with tunnel mouths, framed by crystal clusters.
 - Doors, wreckage and exits always stay in tunnels.
+
+## 12. Plating rule
+
+Plating cuts **every single hit** by its value and is not used up, for the player and enemies alike.
+It clears at the start of its owner's next turn. 5 plating vs a 3×2 attack: no damage.
+
+Rebalance that came with it (autoplay bot, 120 runs: 40% clear Kessra, 40% die in the lab,
+20% die in Kessra — the same as before the rule change):
+- Enemy plating values cut to 2–5 (was 4–14), since each point now counts on every hit.
+- Enemies hit harder and less often: multi-hits of 2–3 became 1 big hit or ×2 at 5–11 per hit.
+- Every enemy attack +1.
