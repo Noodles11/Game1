@@ -1,7 +1,10 @@
-import { GENES, cardDef, cardLevel, cardName, cardText, imprintTotal, isMedic, needsTarget, splice, spliceCost } from '../core/cards';
+import {
+  GENES, MUTATIONS, applyMutation, applySurgery, cardDef, cardLevel, cardName, cardText, imprintTotal, isMedic, mutationAmount,
+  needsTarget, nextStep, surgeryOps,
+} from '../core/cards';
 import { ENEMIES } from '../core/enemies';
 import { FORCE_COST, Game, RELIQUARY_PRICE, freshMeta, type GameEvent } from '../core/game';
-import type { CardInstance, DeckKind, EnemyState, MapNode, Meta } from '../core/types';
+import type { CardInstance, EnemyState, MapNode, Meta } from '../core/types';
 import { BOONS, EVENTS, LOGS, MAP_ROWS, WORLDS, WORLD_ORDER } from '../core/worlds';
 import { PASSAGE_SPREAD, Stage, enemySlot, passageSlot } from '../render/stage';
 import { cardArt, cardArtDefs, germArt } from './cardart';
@@ -62,6 +65,7 @@ const HINTS: Record<string, string> = {
   hold: 'Hold — stays in your hand at the end of your turn. It takes one of your draw slots.',
   sibling: 'Sibling — printed from one line. Every Imprint one copy gets, all copies get, and new copies arrive already grown.',
   unstable: 'Unstable — the result is random, and one time in three it is a defect.',
+  surgerybay: 'Surgery bay — pay biomass to cut defects, elite drawbacks, negative scars and biomass prices out of your cards.',
   elite: 'Elite mutation — rare at splice pods. Stronger than any normal gene, and it always takes something back.',
   fleeting: 'Fleeting — printed during this fight. It is not part of your deck and is gone when the fight ends.',
   consume: 'Consume — removes a card from your deck for the rest of the run. Grief Engines remember every one.',
@@ -94,7 +98,6 @@ export class App {
   private selected: number | null = null;
   private sheet: Sheet = 'none';
   private spliceSel: number | null = null;
-  private spliceTab: DeckKind = 'combat';
   private busy = false;
   private whisperTimer = 0;
   private hintTimer = 0;
@@ -263,9 +266,13 @@ export class App {
       case 'offer': g.takeOffer(Number(el.dataset.i)); break;
       case 'skip': g.takeOffer(null); break;
       case 'splice-card': this.spliceSel = uid; break;
-      case 'gene': if (this.spliceSel !== null) g.spliceCard(this.spliceSel, el.dataset.gene!); break;
-      case 'tab': this.spliceTab = el.dataset.deck as DeckKind; this.spliceSel = null; break;
-      case 'leave-pod': g.leavePod(); break;
+      case 'feed': g.feedVat(Math.min(Number(el.dataset.n), g.biomass)); break;
+      case 'mutate': if (this.spliceSel !== null) g.mutateCard(this.spliceSel); this.spliceSel = null; break;
+      case 'leave-pod': this.spliceSel = null; g.leavePod(); break;
+      case 'surgery': this.spliceSel = null; g.useSurgery(); break;
+      case 'op-card': this.spliceSel = uid; break;
+      case 'op': if (this.spliceSel !== null) g.operate(this.spliceSel, el.dataset.op!); break;
+      case 'leave-surgery': this.spliceSel = null; g.leaveSurgery(); break;
       case 'mod': g.chooseModifier(el.dataset.mod as 'biomass' | 'integrity' | 'energy'); break;
       case 'empower': g.empowerTarget(uid); break;
       case 'pick': g.pickCard(uid); break;
@@ -717,6 +724,7 @@ export class App {
         ${g.world ? `<button class="btn small cryo" data-act="map">${this.mapOpen ? 'close' : 'map'}</button>` : ''}
         <span class="spacer"></span>
         ${g.canUsePod() ? '<button class="btn cryo" data-act="pod">splice</button>' : ''}
+        ${g.canUseSurgery() ? '<button class="btn surgbtn" data-act="surgery" data-hint="surgerybay" aria-label="surgery bay">✂</button>' : ''}
         ${g.gateHere() ? '<button class="btn gatebtn" data-act="gate" data-hint="gate" aria-label="gateway">⟁</button>' : ''}
         ${blocked
           ? `<button class="btn primary danger" data-act="force">force −${FORCE_COST}</button>`
@@ -859,6 +867,8 @@ export class App {
       html = this.offerHtml();
     } else if (g.phase === 'splice') {
       html = this.spliceHtml();
+    } else if (g.phase === 'surgery') {
+      html = this.surgeryHtml();
     }
     this.sheetEl.hidden = !html;
     this.sheetEl.classList.toggle('full', full);
@@ -1053,43 +1063,95 @@ export class App {
 
   private spliceHtml(): string {
     const g = this.game;
-    const deck = this.spliceTab === 'combat' ? g.combatDeck : g.surveyDeck;
-    const grid = deck.map((c) => {
+    const v = g.vat!;
+    const targets = g.vatTargets();
+    const amount = g.vatAmount();
+    let effect: string;
+    let next: string;
+    let name: string;
+    let drawback = '';
+    if (v.elite) {
+      const gene = GENES[v.effect];
+      const price = g.vatElitePrice();
+      name = gene.name;
+      effect = `${gene.text}${gene.rule ? ` — ${gene.rule}` : ''}`;
+      drawback = gene.drawback ? `<p class="drawback">price: ${gene.drawback}</p>` : '';
+      next = amount ? 'Ready.' : `Needs ${price} biomass in the pool.`;
+    } else {
+      const m = MUTATIONS[v.effect];
+      name = m.name;
+      effect = amount ? m.label(amount) : `${m.label(m.base)} at ${m.min}`;
+      const n = nextStep(m, v.pool);
+      next = amount
+        ? `${m.label(mutationAmount(m, n))} at ${n} (${n - v.pool} more)`
+        : `Needs ${m.min} biomass (${m.min - v.pool} more)`;
+    }
+    const cap = v.elite ? g.vatElitePrice() : Math.max(nextStep(MUTATIONS[v.effect], v.pool), 10);
+    const fill = Math.min(100, (v.pool / cap) * 100);
+    const sel = targets.find((c) => c.uid === this.spliceSel);
+    let preview = '<p class="podhint"><em>Choose the card to mutate.</em></p>';
+    if (sel && amount) {
+      const after: CardInstance = JSON.parse(JSON.stringify(sel));
+      if (v.elite) {
+        after.genes = [...after.genes, v.effect];
+        after.prefix = undefined;
+      } else applyMutation(after, MUTATIONS[v.effect], amount);
+      preview = `<p class="podhint">becomes <em>${esc(cardName(after))}</em>: ${cardText(after).join(' ')}</p>`;
+    } else if (sel) preview = `<p class="podhint"><em>${esc(cardName(sel))}</em> chosen. The pool is not strong enough yet.</p>`;
+    const chunks = [1, 5, 10].map((n) =>
+      `<button class="btn small feed" data-act="feed" data-n="${n}" ${g.biomass < 1 ? 'disabled' : ''}>+${n}</button>`).join('');
+    const grid = targets.map((c) => {
       const html = this.cardHtml(c, { act: 'splice-card' });
       return this.spliceSel === c.uid ? html.replace('class="card', 'class="card selected') : html;
     });
-    let genebox = '<p><em>Tap a card below to see which genes will bond with it.</em></p>';
-    const card = this.spliceSel !== null ? g.findCard(this.spliceSel) : undefined;
-    if (card) {
-      const offers = g.offersFor(card.uid);
-      const rows = offers.map((id) => {
-        const gene = GENES[id];
-        const cost = spliceCost(card, id);
-        const after = splice(card, id);
+    return `
+      <div class="eyebrow">splice pod · <span class="bioline">${g.biomass} biomass left</span></div>
+      <h2>${v.elite ? 'elite mutation' : 'mutate'}</h2>
+      <div class="vat ${v.elite ? 'elite' : ''}">
+        <div class="vatglass"><div class="vatfill" style="height:${fill}%"></div><b>${v.pool}</b></div>
+        <div class="vatinfo">
+          <span class="vatname">${esc(name)}</span>
+          <span class="vateffect ${amount ? 'on' : ''}">${esc(effect)}</span>
+          ${drawback}
+          <small>${esc(next)}</small>
+          <div class="chunks">${chunks}</div>
+        </div>
+      </div>
+      <p class="podwarn">Biomass thrown in never comes back — even if you leave without mutating.</p>
+      ${preview}
+      <div class="grid">${grid.length ? grid.join('') : '<p>No card can take this mutation.</p>'}</div>
+      <div class="actions">
+        <button class="btn" data-act="leave-pod">${v.pool ? 'leave (pool lost)' : 'leave pod'}</button>
+        <button class="btn primary" data-act="mutate" ${sel && amount ? '' : 'disabled'}>mutate</button>
+      </div>`;
+  }
+
+  private surgeryHtml(): string {
+    const g = this.game;
+    const all = [...g.combatDeck, ...g.surveyDeck].filter((c) => surgeryOps(c).length);
+    const sel = all.find((c) => c.uid === this.spliceSel);
+    let ops = '<p class="podhint"><em>Choose a card to operate on.</em></p>';
+    if (sel) {
+      ops = surgeryOps(sel).map((o) => {
+        const after: CardInstance = JSON.parse(JSON.stringify(sel));
+        applySurgery(after, o.id);
         return `
-          <button class="gene ${gene.elite ? 'elite' : ''}" data-act="gene" data-gene="${id}" ${cost > g.biomass ? 'disabled' : ''}>
-            ${gene.elite ? '<i class="elitetag" data-hint="elite">elite mutation</i>' : ''}
-            <b>${gene.name} · ${gene.text}</b><span class="price">${cost}</span>
-            ${gene.drawback ? `<small class="drawback">price: ${gene.drawback}</small>` : ''}
+          <button class="gene" data-act="op" data-op="${o.id}" ${o.price > g.biomass ? 'disabled' : ''}>
+            <b>${esc(o.label)}</b><span class="price">${o.price}</span>
             <small>becomes <em>${esc(cardName(after))}</em>: ${cardText(after).join(' ')}</small>
           </button>`;
-      });
-      genebox = `
-        <div class="genebox">
-          <h3>${esc(cardName(card))} · level ${cardLevel(card)}</h3>
-          ${rows.length ? rows.join('') : '<p>No gene will bond with this card.</p>'}
-        </div>`;
+      }).join('');
     }
+    const grid = all.map((c) => {
+      const html = this.cardHtml(c, { act: 'op-card' });
+      return this.spliceSel === c.uid ? html.replace('class="card', 'class="card selected') : html;
+    });
     return `
-      <div class="eyebrow">splice pod · <span class="bioline">${g.biomass} biomass</span></div>
-      <h2>evolve</h2>
-      <p>Each gene rewrites a card for the rest of the run. Genes stack without limit, but each costs more than the last. Now and then a pod offers an elite mutation — at a price.</p>
-      <div class="tabs">
-        <button class="btn small" data-act="tab" data-deck="combat" aria-pressed="${this.spliceTab === 'combat'}">tactics</button>
-        <button class="btn small" data-act="tab" data-deck="survey" aria-pressed="${this.spliceTab === 'survey'}">survey</button>
-      </div>
-      ${genebox}
-      <div class="grid">${grid.join('')}</div>
-      <div class="actions"><button class="btn primary" data-act="leave-pod">leave pod</button></div>`;
+      <div class="eyebrow">surgery bay · <span class="bioline">${g.biomass} biomass</span></div>
+      <h2>cut it out</h2>
+      <p>A sterile arm unfolds from the ceiling. It removes defects, elite drawbacks, scars and biomass prices — one cut at a time.</p>
+      <div class="genebox">${ops}</div>
+      <div class="grid">${grid.length ? grid.join('') : '<p>None of your cards has anything to cut out.</p>'}</div>
+      <div class="actions"><button class="btn primary" data-act="leave-surgery">done</button></div>`;
   }
 }

@@ -1369,6 +1369,11 @@ export class Stage {
         box(x, u * 1.1, u * 1.1, () => this.drawCrate(x, fy, u, seg.cleared, dim, i), INK.sodium, !seg.cleared);
         break;
       }
+      case 'surgery': {
+        const x = this.cx + u * 0.3;
+        box(x, u * 1.2, u * 1.5, () => this.drawSurgery(x, fy, u, seg.cleared, dim, i), '#ff6a55', !seg.cleared);
+        break;
+      }
       case 'pod': {
         const x = this.cx - u * 0.35;
         box(x, u * 1.1, u * 1.7, () => this.drawPod(x, fy, u, seg.cleared, dim, i), INK.cryo, !seg.cleared);
@@ -1492,6 +1497,61 @@ export class Stage {
     sketchStroke(ctx, [pts[2], [x + w * 0.05, fy]], i * 17 + 40 + this.boil, 1);
     if (done) sketchStroke(ctx, [[x - w * 0.4, top + h * 0.2], [x + w * 0.1, top + h * 0.5], [x - w * 0.2, top + h * 0.75]], i + 90, 1);
     ctx.globalAlpha = 1;
+  }
+
+  /** A surgery bay: an operating slab under a jointed arm with a lamp and a blade. */
+  private drawSurgery(x: number, fy: number, u: number, done: boolean, dim: number, i: number) {
+    const { ctx } = this;
+    const ink = mix(INK.bone, INK.void, dim);
+    // slab on a pedestal
+    ctx.fillStyle = mix('#3a3f44', INK.void, dim);
+    ctx.fillRect(x - u * 0.08, fy - u * 0.32, u * 0.16, u * 0.32);
+    ctx.fillStyle = mix('#7b8a8c', INK.void, dim);
+    fillPoly(ctx, [[x - u * 0.45, fy - u * 0.34], [x + u * 0.45, fy - u * 0.34], [x + u * 0.38, fy - u * 0.42], [x - u * 0.38, fy - u * 0.42]]);
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = Math.max(1, u * 0.012);
+    sketchStroke(ctx, [[x - u * 0.45, fy - u * 0.34], [x + u * 0.45, fy - u * 0.34]], i * 7 + this.boil, 1);
+    // a sheet over something on the slab
+    ctx.fillStyle = mix('#d9d2bf', INK.void, dim + 0.1);
+    ctx.beginPath();
+    ctx.ellipse(x - u * 0.05, fy - u * 0.45, u * 0.3, u * 0.06, 0, Math.PI, 0);
+    ctx.fill();
+    // jointed arm from the ceiling
+    const sway = Math.sin(this.time * 0.7 + i) * u * 0.03;
+    const top: Pt = [x + u * 0.1, fy - u * 1.45];
+    const elbow: Pt = [x + u * 0.38 + sway, fy - u * 1.0];
+    const hand: Pt = [x + u * 0.05 + sway, fy - u * 0.72];
+    ctx.lineWidth = Math.max(2, u * 0.04);
+    ctx.strokeStyle = mix('#8f9aa0', INK.void, dim);
+    ctx.beginPath();
+    ctx.moveTo(...top);
+    ctx.lineTo(...elbow);
+    ctx.lineTo(...hand);
+    ctx.stroke();
+    ctx.lineWidth = Math.max(1, u * 0.012);
+    ctx.strokeStyle = ink;
+    sketchStroke(ctx, [top, elbow, hand], i * 11 + this.boil, 1);
+    ctx.fillStyle = ink;
+    for (const p of [elbow, hand]) {
+      ctx.beginPath();
+      ctx.arc(p[0], p[1], u * 0.03, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // blade, and a red work lamp while it is still usable
+    ctx.strokeStyle = mix('#e8f0f2', INK.void, dim);
+    ctx.lineWidth = Math.max(1, u * 0.015);
+    ctx.beginPath();
+    ctx.moveTo(hand[0], hand[1]);
+    ctx.lineTo(hand[0] - u * 0.04, hand[1] + u * 0.14);
+    ctx.stroke();
+    if (!done) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.time * 2.2 + i);
+      const g = ctx.createRadialGradient(hand[0], hand[1] + u * 0.2, 0, hand[0], hand[1] + u * 0.2, u * 0.5);
+      g.addColorStop(0, `rgba(255,106,85,${(0.25 + 0.2 * pulse) * (1 - dim)})`);
+      g.addColorStop(1, 'rgba(255,106,85,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(hand[0] - u * 0.5, hand[1] - u * 0.3, u, u);
+    }
   }
 
   private drawCrate(x: number, fy: number, u: number, open: boolean, dim: number, i: number) {

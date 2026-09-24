@@ -1,4 +1,4 @@
-import type { CardDef, CardInstance, CardStats, DeckKind, ImprintStat } from './types';
+import type { CardDef, CardInstance, CardStats, DeckKind, ImprintStat, MutStat } from './types';
 
 const EMPTY: CardStats = {
   cost: 0,
@@ -332,6 +332,8 @@ export interface Gene {
   drawback?: string;
   /** Maximum integrity paid when spliced. */
   maxHpCost?: number;
+  /** The drawback, applied unless a surgery bay cut it out. */
+  penalty?: (s: CardStats) => void;
   /** Rules text for a triggered effect the stat lines cannot express. */
   rule?: string;
 }
@@ -406,7 +408,7 @@ export const GENES: Record<string, Gene> = {
   mirror: {
     id: 'mirror', name: 'Mirror Neurons', prefix: 'Mirroring', deck: 'combat', cost: 14, elite: true,
     text: 'Learns from your other attacks', rule: 'While in hand: each hit by another card, +1 damage this fight.',
-    drawback: '+1 cost', canApply: (s) => s.damage > 0, apply: (s) => { s.cost += 1; },
+    drawback: '+1 cost', canApply: (s) => s.damage > 0, apply: () => {}, penalty: (s) => { s.cost += 1; },
   },
   bloodlust: {
     id: 'bloodlust', name: 'Bloodlust', prefix: 'Frenzied', deck: 'combat', cost: 12, elite: true, maxHpCost: 5,
@@ -416,22 +418,22 @@ export const GENES: Record<string, Gene> = {
   painengine: {
     id: 'painengine', name: 'Pain Engine', prefix: 'Agonized', deck: 'combat', cost: 12, elite: true,
     text: 'Hurts into power', rule: 'While in hand: each time you lose integrity, +2 damage this fight.',
-    drawback: 'costs 1 biomass to play', canApply: (s) => s.damage > 0, apply: (s) => { s.bioCost += 1; },
+    drawback: 'costs 1 biomass to play', canApply: (s) => s.damage > 0, apply: () => {}, penalty: (s) => { s.bioCost += 1; },
   },
   hiveshell: {
     id: 'hiveshell', name: 'Hive Shell', prefix: 'Hived', deck: 'combat', cost: 12, elite: true,
     text: 'Thickens as you act', rule: 'While in hand: each other card you play, +1 plating this fight.',
-    drawback: '+1 cost', canApply: (s) => s.block > 0, apply: (s) => { s.cost += 1; },
+    drawback: '+1 cost', canApply: (s) => s.block > 0, apply: () => {}, penalty: (s) => { s.cost += 1; },
   },
   parasite: {
     id: 'parasite', name: 'Parasite', prefix: 'Parasitic', deck: 'combat', cost: 13, elite: true,
     text: 'Heal 1 per hit that lands', drawback: '−2 damage',
-    canApply: (s) => s.damage > 2, apply: (s) => { s.lifesteal += 1; s.damage -= 2; },
+    canApply: (s) => s.damage > 2, apply: (s) => { s.lifesteal += 1; }, penalty: (s) => { s.damage -= 2; },
   },
   glassmarrow: {
     id: 'glassmarrow', name: 'Glass Marrow', prefix: 'Glass', deck: 'combat', cost: 10, elite: true,
     text: '+7 damage', drawback: 'lose 2 integrity per play',
-    canApply: (s) => s.damage > 0, apply: (s) => { s.damage += 7; s.selfHarm += 2; },
+    canApply: (s) => s.damage > 0, apply: (s) => { s.damage += 7; }, penalty: (s) => { s.selfHarm += 2; },
   },
   brittle: {
     id: 'brittle', name: 'Brittle', prefix: 'Brittle', deck: 'combat', cost: 0, defect: true,
@@ -455,7 +457,11 @@ export function cardDef(card: CardInstance): CardDef {
 
 export function cardStats(card: CardInstance): CardStats {
   const s: CardStats = { ...EMPTY, ...cardDef(card).base };
-  for (const g of card.genes) GENES[g].apply(s);
+  for (const g of card.genes) {
+    GENES[g].apply(s);
+    if (!card.purged?.includes(g)) GENES[g].penalty?.(s);
+  }
+  for (const [k, v] of Object.entries(card.mut ?? {})) (s as unknown as Record<string, number>)[k] += v ?? 0;
   const im = card.imprint;
   if (im) {
     s.damage += im.damage ?? 0;
@@ -466,15 +472,17 @@ export function cardStats(card: CardInstance): CardStats {
   s.block = Math.max(0, s.block);
   s.cost = Math.max(0, s.cost);
   s.bioCost = Math.max(0, s.bioCost);
+  s.hits = Math.max(1, s.hits);
   return s;
 }
 
 export function cardLevel(card: CardInstance): number {
-  return card.genes.length;
+  return card.genes.length + (card.mem?.muts ?? 0);
 }
 
 export function cardName(card: CardInstance): string {
   const def = cardDef(card);
+  if (card.prefix) return `${card.prefix} ${def.name}`;
   if (card.genes.length === 0) return def.name;
   const last = GENES[card.genes[card.genes.length - 1]];
   return `${last.prefix} ${def.name}`;
@@ -596,4 +604,121 @@ export function needsTarget(card: CardInstance): boolean {
   const s = cardStats(card);
   const def = cardDef(card);
   return def.deck === 'combat' && !s.aoe && (s.damage > 0 || s.tag > 0 || s.weak > 0 || s.exposed > 0);
+}
+
+// ---- Pod mutations: pour biomass in, the effect grows ----
+
+export interface Mutation {
+  id: string;
+  name: string;
+  prefix: string;
+  stat: MutStat;
+  /** +1 or −1: which way the stat moves. */
+  sign: 1 | -1;
+  /** Biomass for the first step, the size of that step, then biomass per extra +1. */
+  min: number;
+  base: number;
+  per: number;
+  deck: DeckKind | 'any';
+  canApply: (s: CardStats) => boolean;
+  label: (n: number) => string;
+}
+
+export const MUTATIONS: Record<string, Mutation> = {
+  sharpen: {
+    id: 'sharpen', name: 'Hypertrophy', prefix: 'Swollen', stat: 'damage', sign: 1, min: 5, base: 2, per: 10, deck: 'combat',
+    canApply: (s) => s.damage > 0, label: (n) => `+${n} damage`,
+  },
+  harden: {
+    id: 'harden', name: 'Keratin Bloom', prefix: 'Horned', stat: 'block', sign: 1, min: 5, base: 2, per: 10, deck: 'combat',
+    canApply: () => true, label: (n) => `+${n} plating`,
+  },
+  split: {
+    id: 'split', name: 'Mitotic Split', prefix: 'Split', stat: 'hits', sign: 1, min: 20, base: 1, per: 25, deck: 'combat',
+    canApply: (s) => s.damage > 0 && s.hits < 5, label: (n) => `+${n} hit${n > 1 ? 's' : ''}`,
+  },
+  atrophy: {
+    id: 'atrophy', name: 'Lean Atrophy', prefix: 'Lean', stat: 'cost', sign: -1, min: 15, base: 1, per: 30, deck: 'any',
+    canApply: (s) => s.cost > 0, label: (n) => `−${n} cost`,
+  },
+  brand: {
+    id: 'brand', name: 'Scent Gland', prefix: 'Reeking', stat: 'tag', sign: 1, min: 5, base: 1, per: 15, deck: 'combat',
+    canApply: (s) => s.damage > 0, label: (n) => `Tag +${n}`,
+  },
+  regrow: {
+    id: 'regrow', name: 'Regrowth', prefix: 'Budding', stat: 'heal', sign: 1, min: 5, base: 2, per: 10, deck: 'any',
+    canApply: (s) => s.heal > 0, label: (n) => `+${n} heal`,
+  },
+  reflex: {
+    id: 'reflex', name: 'Nerve Bundle', prefix: 'Twitching', stat: 'draw', sign: 1, min: 10, base: 1, per: 20, deck: 'any',
+    canApply: () => true, label: (n) => `Draw +${n}`,
+  },
+  leech: {
+    id: 'leech', name: 'Proboscis', prefix: 'Sucking', stat: 'lifesteal', sign: 1, min: 15, base: 1, per: 25, deck: 'combat',
+    canApply: (s) => s.damage > 0, label: (n) => `Heal ${n} per hit`,
+  },
+};
+
+/** How strong a mutation is with this much biomass in the pool (0 below the first step). */
+export function mutationAmount(m: Mutation, pool: number): number {
+  return pool < m.min ? 0 : m.base + Math.floor((pool - m.min) / m.per);
+}
+
+/** Biomass needed for the next step up. */
+export function nextStep(m: Mutation, pool: number): number {
+  return pool < m.min ? m.min : m.min + (Math.floor((pool - m.min) / m.per) + 1) * m.per;
+}
+
+export function mutationFits(m: Mutation, card: CardInstance): boolean {
+  const def = cardDef(card);
+  return (m.deck === 'any' || m.deck === def.deck) && m.canApply(cardStats(card));
+}
+
+/** Apply a mutation of the given strength to a card, for the rest of the run. */
+export function applyMutation(card: CardInstance, m: Mutation, amount: number) {
+  let n = amount;
+  if (m.stat === 'cost') n = Math.min(n, cardStats(card).cost);
+  card.mut = { ...card.mut, [m.stat]: (card.mut?.[m.stat] ?? 0) + m.sign * n };
+  card.prefix = m.prefix;
+  card.mem = { ...card.mem, muts: (card.mem?.muts ?? 0) + 1 };
+}
+
+// ---- Surgery: cut bad parts out ----
+
+export interface SurgeryOp {
+  id: string;
+  label: string;
+  price: number;
+}
+
+/** What a surgery bay can cut out of this card, and what it costs. */
+export function surgeryOps(card: CardInstance): SurgeryOp[] {
+  const ops: SurgeryOp[] = [];
+  const s = cardStats(card);
+  for (const g of new Set(card.genes)) {
+    const gene = GENES[g];
+    if (gene.defect) ops.push({ id: `defect:${g}`, label: `Cut out ${gene.name} (${gene.text.replace(' (defect)', '')})`, price: 8 });
+    else if (gene.penalty && !card.purged?.includes(g)) ops.push({ id: `purge:${g}`, label: `Cut the drawback from ${gene.name} (${gene.drawback})`, price: 12 });
+  }
+  for (const k of ['damage', 'block', 'tag'] as const) {
+    const v = card.imprint?.[k] ?? 0;
+    if (v < 0) ops.push({ id: `scar:${k}`, label: `Remove ${v} ${k} scar`, price: Math.max(4, -v * 2) });
+  }
+  if (s.bioCost > 0) ops.push({ id: 'bio', label: 'Cut the biomass price by 1', price: 6 });
+  return ops;
+}
+
+/** Perform a surgery op on a card. */
+export function applySurgery(card: CardInstance, opId: string) {
+  const [kind, arg] = opId.split(':');
+  if (kind === 'defect') {
+    const i = card.genes.indexOf(arg);
+    if (i >= 0) card.genes = [...card.genes.slice(0, i), ...card.genes.slice(i + 1)];
+  } else if (kind === 'purge') {
+    card.purged = [...(card.purged ?? []), arg];
+  } else if (kind === 'scar') {
+    card.imprint = { ...card.imprint, [arg]: 0 };
+  } else if (kind === 'bio') {
+    card.mut = { ...card.mut, bioCost: (card.mut?.bioCost ?? 0) - 1 };
+  }
 }

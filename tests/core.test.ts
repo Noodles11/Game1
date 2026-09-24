@@ -158,23 +158,126 @@ describe('combat and harvest', () => {
   });
 });
 
-describe('splice pods', () => {
-  it('spends biomass to evolve a card in the deck', () => {
+describe('splice pods: pour biomass, then mutate', () => {
+  /** Stand at the first lab pod with a fixed mutation in it. */
+  function atPod(effect = 'sharpen') {
     const g = new Game(4);
     g.pos = 3;
     g.segments[4].revealed = true;
     expect(g.usePod()).toBe(true);
-    g.biomass = 50;
-    const scalpel = g.combatDeck.find((c) => c.defId === 'scalpel')!;
-    const offers = g.offersFor(scalpel.uid);
-    expect(offers.length).toBe(3);
-    expect(g.offersFor(scalpel.uid)).toEqual(offers);
-    const cost = spliceCost(scalpel, offers[0]);
-    expect(g.spliceCard(scalpel.uid, offers[0])).toBe(true);
-    expect(g.biomass).toBe(50 - cost);
-    expect(scalpel.genes).toEqual([offers[0]]);
-    g.leavePod();
+    g.vat = { effect, elite: false, pool: 0 };
+    g.biomass = 60;
+    return g;
+  }
+
+  it('the effect grows with the pool: +2 damage at 5, then +1 per 10', () => {
+    const g = atPod();
+    expect(g.vatAmount()).toBe(0);
+    g.feedVat(4);
+    expect(g.vatAmount()).toBe(0);
+    g.feedVat(1);
+    expect(g.vatAmount()).toBe(2);
+    g.feedVat(10);
+    expect(g.vatAmount()).toBe(3);
+    g.feedVat(10);
+    expect(g.vatAmount()).toBe(4);
+    expect(g.biomass).toBe(60 - 25);
+  });
+
+  it('mutating applies the effect to the chosen card and spends the pod', () => {
+    const g = atPod();
+    const sc = g.combatDeck.find((c) => c.defId === 'scalpel')!;
+    const brace = g.combatDeck.find((c) => c.defId === 'brace')!;
+    g.feedVat(15);
+    expect(g.vatTargets().some((c) => c.uid === brace.uid)).toBe(false);
+    expect(g.mutateCard(sc.uid)).toBe(true);
+    expect(cardStats(sc).damage).toBe(6 + 3);
+    expect(cardName(sc)).toBe('Swollen Scalpel');
+    expect(g.phase).toBe('explore');
     expect(g.canUsePod()).toBe(false);
+  });
+
+  it('cannot mutate below the first step; leaving keeps the biomass in the pod', () => {
+    const g = atPod();
+    const sc = g.combatDeck.find((c) => c.defId === 'scalpel')!;
+    g.feedVat(3);
+    expect(g.mutateCard(sc.uid)).toBe(false);
+    g.leavePod();
+    expect(g.biomass).toBe(57);
+    expect(cardStats(sc).damage).toBe(6);
+    expect(g.canUsePod()).toBe(false);
+  });
+
+  it('cost mutations never go below 0', () => {
+    const g = atPod('atrophy');
+    const sc = g.combatDeck.find((c) => c.defId === 'scalpel')!;
+    g.feedVat(60);
+    g.mutateCard(sc.uid);
+    expect(cardStats(sc).cost).toBe(0);
+  });
+
+  it('elite mutations need their full price in the pool', () => {
+    const g = atPod();
+    g.vat = { effect: 'glassmarrow', elite: true, pool: 0 };
+    const sc = g.combatDeck.find((c) => c.defId === 'scalpel')!;
+    g.feedVat(14);
+    expect(g.mutateCard(sc.uid)).toBe(false);
+    g.feedVat(1);
+    expect(g.mutateCard(sc.uid)).toBe(true);
+    expect(sc.genes).toEqual(['glassmarrow']);
+  });
+
+  it('the pod pool survives a save', () => {
+    const g = atPod();
+    g.feedVat(7);
+    const r = Game.load(g.serialize())!;
+    expect(r.phase).toBe('splice');
+    expect(r.vat).toEqual({ effect: 'sharpen', elite: false, pool: 7 });
+  });
+});
+
+describe('surgery bays', () => {
+  function atSurgery() {
+    const g = new Game(4);
+    const i = g.segments.findIndex((s) => s.feature === 'surgery');
+    expect(i).toBeGreaterThan(0);
+    g.pos = i - 1;
+    g.segments[i].revealed = true;
+    expect(g.useSurgery()).toBe(true);
+    g.biomass = 40;
+    return g;
+  }
+
+  it('cuts a defect gene out', () => {
+    const g = atSurgery();
+    const sc = g.combatDeck.find((c) => c.defId === 'scalpel')!;
+    sc.genes = ['brittle'];
+    expect(g.operate(sc.uid, 'defect:brittle')).toBe(true);
+    expect(sc.genes).toEqual([]);
+    expect(g.biomass).toBe(32);
+  });
+
+  it('cuts only the drawback out of an elite gene', () => {
+    const g = atSurgery();
+    const sc = g.combatDeck.find((c) => c.defId === 'scalpel')!;
+    sc.genes = ['glassmarrow'];
+    expect(cardStats(sc).selfHarm).toBe(2);
+    g.operate(sc.uid, 'purge:glassmarrow');
+    expect(cardStats(sc).selfHarm).toBe(0);
+    expect(cardStats(sc).damage).toBe(13);
+  });
+
+  it('removes negative imprints and lowers biomass prices', () => {
+    const g = atSurgery();
+    const hunger: CardInstance = { uid: 9800, defId: 'hunger', genes: [], imprint: { damage: -6 } };
+    const poult: CardInstance = { uid: 9801, defId: 'poultice', genes: [] };
+    g.combatDeck.push(hunger, poult);
+    g.operate(hunger.uid, 'scar:damage');
+    expect(cardStats(hunger).damage).toBe(11);
+    g.operate(poult.uid, 'bio');
+    expect(cardStats(poult).bioCost).toBe(1);
+    g.leaveSurgery();
+    expect(g.canUseSurgery()).toBe(false);
   });
 });
 
@@ -256,11 +359,11 @@ describe('sectors and modifiers', () => {
         g.finishHarvest();
       } else if (g.phase === 'reward' || g.phase === 'loot') g.takeOffer(0);
       else if (g.phase === 'splice') {
-        for (const c of g.combatDeck) {
-          const o = g.offersFor(c.uid)[0];
-          if (o) g.spliceCard(c.uid, o);
+        {
+          g.feedVat(Math.min(g.biomass, 15));
+          const t = g.vatTargets()[0];
+          if (!t || !g.mutateCard(t.uid)) g.leavePod();
         }
-        g.leavePod();
       } else break;
     }
     return g;
@@ -417,11 +520,11 @@ function autoplay(g: Game, guardMax = 3000): string {
       case 'event': if (!g.chooseEventOption(1)) g.leaveEvent(); break;
       case 'boon': g.chooseBoon(g.boonOffers[0]); break;
       case 'splice': {
-        for (const c of g.combatDeck) {
-          const o = g.offersFor(c.uid)[0];
-          if (o) g.spliceCard(c.uid, o);
+        {
+          g.feedVat(Math.min(g.biomass, 15));
+          const t = g.vatTargets()[0];
+          if (!t || !g.mutateCard(t.uid)) g.leavePod();
         }
-        g.leavePod();
         break;
       }
       default:
@@ -1266,7 +1369,7 @@ describe('medic consumption and triage', () => {
 });
 
 describe('splicing prices and elite mutations', () => {
-  it('splicing costs more: 1.5× the gene price, +3 per level', () => {
+  it('gene price helper (used for elite mutations): 1.5× the gene price, +3 per level', () => {
     expect(spliceCost({ uid: 1, defId: 'scalpel', genes: [] }, 'serrated')).toBe(6);
     expect(spliceCost({ uid: 1, defId: 'scalpel', genes: ['serrated'] }, 'serrated')).toBe(9);
   });
@@ -1277,12 +1380,16 @@ describe('splicing prices and elite mutations', () => {
     let seen = 0;
     for (let seed = 1; seed <= 40; seed++) {
       const g = new Game(seed);
-      g.phase = 'splice';
-      const sc = g.combatDeck.find((x) => x.defId === 'scalpel')!;
-      if (g.offersFor(sc.uid).some((id) => GENES[id].elite)) seen++;
+      g.pos = 3;
+      g.segments[4].revealed = true;
+      g.usePod();
+      if (g.vat!.elite) {
+        seen++;
+        expect(GENES[g.vat!.effect].elite).toBe(true);
+      }
     }
-    expect(seen).toBeGreaterThan(4);
-    expect(seen).toBeLessThan(25);
+    expect(seen).toBeGreaterThan(3);
+    expect(seen).toBeLessThan(20);
   });
 
   /** A fight with the given cards in hand. */
@@ -1311,10 +1418,14 @@ describe('splicing prices and elite mutations', () => {
     g.playCombat(cards[1].uid, c.enemies[1].uid);
     expect(g.displayStats(cards[0]).damage).toBe(9);
     const g2 = new Game(5);
-    g2.phase = 'splice';
+    g2.pos = 3;
+    g2.segments[4].revealed = true;
+    g2.usePod();
+    g2.vat = { effect: 'bloodlust', elite: true, pool: 0 };
     g2.biomass = 99;
+    g2.feedVat(18);
     const sc = g2.combatDeck.find((x) => x.defId === 'scalpel')!;
-    g2.spliceCard(sc.uid, 'bloodlust');
+    expect(g2.mutateCard(sc.uid)).toBe(true);
     expect(g2.maxHp).toBe(37);
   });
 

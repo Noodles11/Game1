@@ -93,3 +93,30 @@ About 3 cards in 10 at a pod also get an **elite mutation** offer: strong, price
 Elite genes never come from Mutagen Flask. Stacking the same elite gene stacks its effect.
 
 Bot sim after this change and single-use medic cards: 31/120 clear Kessra (was 47).
+
+## Splice pods, redefined (pour and mutate)
+
+A pod holds one random **mutation**. You throw biomass into its pool in chunks (+1 / +5 / +10); it never comes back,
+even if you walk away without mutating. The pool sets the strength. Pick a card it fits, then press **Mutate**.
+One mutation per pod.
+
+| Mutation | Effect | First step | Then |
+|---|---|---|---|
+| Hypertrophy | +damage | +2 at 5 | +1 per 10 |
+| Keratin Bloom | +plating | +2 at 5 | +1 per 10 |
+| Mitotic Split | +hits | +1 at 20 | +1 per 25 |
+| Lean Atrophy | −cost (never below 0) | −1 at 15 | −1 per 30 |
+| Scent Gland | +Tag | +1 at 5 | +1 per 15 |
+| Regrowth | +heal | +2 at 5 | +1 per 10 |
+| Nerve Bundle | +draw | +1 at 10 | +1 per 20 |
+| Proboscis | heal per hit | +1 at 15 | +1 per 25 |
+
+A quarter of pods hold an **elite mutation** instead: it needs its full price (gene cost × 1.5) in the pool.
+
+## Surgery bays
+
+One in lab sector 2, and half of world pod nodes have one after the pod. For biomass, cut out:
+a defect gene (8), an elite gene's drawback only (12), a negative imprint scar (2 per point, min 4), or 1 of a biomass price (6).
+Several cuts per visit.
+
+Bot sim after this change: 10/120 clear Kessra (31 before). Evolution now costs far more per point; see the note in chat.

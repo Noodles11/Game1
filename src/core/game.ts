@@ -1,6 +1,7 @@
 import {
   REWARD_COMBAT, REWARD_SURVEY, SECRET_CARDS, STARTER_COMBAT, STARTER_SURVEY,
-  CARDS, GENES, addImprint, cardDef, eliteGenesFor, isMedic, cardStats, genesFor, mutationsFor, needsTarget, splice, spliceCost,
+  CARDS, GENES, MUTATIONS, addImprint, applyMutation, applySurgery, cardDef, eliteGenesFor, isMedic, mutationAmount,
+  mutationFits, surgeryOps, cardStats, mutationsFor, needsTarget,
 } from './cards';
 import { ENEMIES } from './enemies';
 import { Rng } from './rng';
@@ -12,7 +13,7 @@ import { BOONS, EVENTS, GERMLINE, LOGS, MAP_ROWS, WORLDS, generateMap } from './
 
 export type Phase =
   | 'explore' | 'combat' | 'harvest' | 'reward' | 'loot' | 'splice' | 'modifier'
-  | 'mainframe' | 'map' | 'event' | 'boon' | 'secret' | 'dead' | 'won';
+  | 'mainframe' | 'map' | 'event' | 'boon' | 'secret' | 'surgery' | 'dead' | 'won';
 
 /** Maximum integrity a Reliquary card costs. */
 export const RELIQUARY_PRICE = 8;
@@ -170,7 +171,9 @@ export class Game {
   // Rewards and splicing
   offers: Offer[] = [];
   podIndex = -1;
-  private spliceOffers = new Map<number, string[]>();
+  /** The splice pod in use: what it offers, and the biomass poured in (never given back). */
+  vat: { effect: string; elite: boolean; pool: number } | null = null;
+  surgeryIndex = -1;
 
   events: GameEvent[] = [];
   message = '';
@@ -254,7 +257,7 @@ export class Game {
       seg('door', { dark: true }),
       seg('enemies', { encounter: ['drone', 'bloom'], dark: true, whisper: 'Wet clicking, and under it, something enormous, breathing slow.' }),
       seg('crate', { whisper: whispers[1] }),
-      seg('none', { whisper: whispers[2], shape: 'vats' }),
+      seg('surgery', { whisper: 'A surgical arm hangs from the ceiling, still sterile. It will cut anything out of you, for a price.', shape: 'vats' }),
       seg('pod', { whisper: 'The last pod. The glass is fogged from the inside.' }),
       seg('door'),
       seg('enemies', { encounter: ['first'], whisper: 'A shape too large for the hall. It already knows your name.', sectorBoss: 2 }),
@@ -337,7 +340,8 @@ export class Game {
       case 'door': return `Sealed hatch. Play Override, or force it (−${FORCE_COST} integrity).`;
       case 'debris': return `Wreckage. Play Plasma Cutter, or squeeze through (−${FORCE_COST}).`;
       case 'crate': return 'A supply locker. Pry it open, or walk past.';
-      case 'pod': return 'A splice pod glows ahead. Tap it to evolve cards.';
+      case 'pod': return 'A splice pod glows ahead. Pour biomass in to mutate a card.';
+      case 'surgery': return 'A surgery bay. It cuts defects and drawbacks out of cards, for biomass.';
       case 'enemies': return 'Something waits ahead. Advance to fight.';
       case 'exit': return this.world ? 'The way out. Walk on to return to the map.' : 'Light. Real light. Keep walking.';
       case 'event': return 'Something here is worth a look.';
@@ -393,7 +397,7 @@ export class Game {
   }
 
   /** Interactable in front or underfoot (locker or pod). */
-  private interactable(kind: 'crate' | 'pod'): number {
+  private interactable(kind: 'crate' | 'pod' | 'surgery'): number {
     for (const i of [this.pos + 1, this.pos]) {
       const s = this.segments[i];
       if (s && s.revealed && s.feature === kind && !s.cleared) return i;
@@ -403,6 +407,10 @@ export class Game {
 
   canUsePod(): boolean {
     return this.phase === 'explore' && this.interactable('pod') >= 0;
+  }
+
+  canUseSurgery(): boolean {
+    return this.phase === 'explore' && this.interactable('surgery') >= 0;
   }
 
   surveyPlayable(card: CardInstance): string | null {
@@ -715,7 +723,12 @@ export class Game {
       case 'locker':
         return [entry, seg('crate', open(0.6)), exit];
       case 'pod':
-        return [entry, seg('pod', { whisper: 'A splice pod, grown over with crystal. It still works.', ...open(0.6) }), exit];
+        return [
+          entry,
+          seg('pod', { whisper: 'A splice pod, grown over with crystal. It still works.', ...open(0.6) }),
+          ...(this.rng.next() < 0.5 ? [seg('surgery', { whisper: 'A surgical arm, crusted in glass. It still cuts clean.' })] : []),
+          exit,
+        ];
       case 'event': {
         const unseen = w.events.filter((id) => !this.segmentsSeenEvent(id));
         const id = this.rng.pick(unseen.length ? unseen : w.events);
@@ -918,54 +931,123 @@ export class Game {
     const i = this.interactable('pod');
     if (this.phase !== 'explore' || i < 0) return false;
     this.podIndex = i;
-    this.spliceOffers.clear();
     this.phase = 'splice';
+    const all = [...this.combatDeck, ...this.surveyDeck];
+    // Now and then the pod holds something it should not: an elite mutation.
+    const elites = [...new Set(this.combatDeck.flatMap((c) => eliteGenesFor(c).map((g) => g.id)))];
+    if (elites.length && this.rng.next() < 0.25) {
+      this.vat = { effect: this.rng.pick(elites), elite: true, pool: 0 };
+    } else {
+      const fits = Object.values(MUTATIONS).filter((m) => all.some((c) => mutationFits(m, c)));
+      this.vat = { effect: this.rng.pick(fits).id, elite: false, pool: 0 };
+    }
+    this.message = 'Pour biomass in. The more you give it, the stronger it takes.';
     return true;
   }
 
-  /** Up to 3 genes this pod offers for a given card. Stable for the visit. */
-  offersFor(uid: number): string[] {
-    const card = this.findCard(uid);
-    if (!card) return [];
-    const cached = this.spliceOffers.get(uid);
-    const valid = new Set(genesFor(card).map((g) => g.id));
-    const eliteOk = new Set(eliteGenesFor(card).map((g) => g.id));
-    if (cached && cached.every((g) => valid.has(g) || eliteOk.has(g))) return cached;
-    const picks = this.rng.sample([...valid], 3);
-    // sometimes the pod offers something it should not
-    const elite = eliteGenesFor(card);
-    if (elite.length && this.rng.next() < 0.3) picks.push(this.rng.pick(elite).id);
-    this.spliceOffers.set(uid, picks);
-    return picks;
+  /** Throw biomass into the pod. It does not come back. */
+  feedVat(n: number): boolean {
+    if (this.phase !== 'splice' || !this.vat || n <= 0 || n > this.biomass) return false;
+    this.biomass -= n;
+    this.vat.pool += n;
+    this.emit({ type: 'biomass', amount: -n });
+    return true;
   }
 
-  spliceCard(uid: number, geneId: string): boolean {
-    if (this.phase !== 'splice') return false;
+  /** Price of the pod's elite mutation, if that is what it holds. */
+  vatElitePrice(): number {
+    return this.vat?.elite ? Math.round(GENES[this.vat.effect].cost * 1.5) : 0;
+  }
+
+  /** What the pod will do right now: 0 means not enough biomass yet. */
+  vatAmount(): number {
+    const v = this.vat;
+    if (!v) return 0;
+    if (v.elite) return v.pool >= this.vatElitePrice() ? 1 : 0;
+    return mutationAmount(MUTATIONS[v.effect], v.pool);
+  }
+
+  /** Cards this pod's mutation can take hold in. */
+  vatTargets(): CardInstance[] {
+    const v = this.vat;
+    if (!v) return [];
+    if (v.elite) return this.combatDeck.filter((c) => eliteGenesFor(c).some((g) => g.id === v.effect));
+    const m = MUTATIONS[v.effect];
+    return [...this.combatDeck, ...this.surveyDeck].filter((c) => mutationFits(m, c));
+  }
+
+  /** Mutate the chosen card with what is in the pool. The pod is spent. */
+  mutateCard(uid: number): boolean {
+    const v = this.vat;
+    if (this.phase !== 'splice' || !v) return false;
+    const amount = this.vatAmount();
+    const card = this.vatTargets().find((c) => c.uid === uid);
+    if (!card || amount <= 0) return false;
+    if (v.elite) {
+      card.genes = [...card.genes, v.effect];
+      card.prefix = undefined;
+      card.mem = { ...card.mem, muts: (card.mem?.muts ?? 0) + 1 };
+      const price = GENES[v.effect].maxHpCost ?? 0;
+      if (price) {
+        this.maxHp = Math.max(1, this.maxHp - price);
+        this.hp = Math.min(this.hp, this.maxHp);
+      }
+    } else {
+      applyMutation(card, MUTATIONS[v.effect], amount);
+    }
+    this.emit({ type: 'splice', uid });
+    this.closePod('It takes. The pod drains and goes dark.');
+    return true;
+  }
+
+  /** Walk away. Whatever was poured in stays in the pod. */
+  leavePod(): void {
+    if (this.phase !== 'splice') return;
+    this.closePod(this.vat?.pool ? 'You walk away. The pod keeps what you gave it.' : 'The pod drains. It will not wake again.');
+  }
+
+  private closePod(message: string) {
+    this.segments[this.podIndex].cleared = true;
+    this.podIndex = -1;
+    this.vat = null;
+    this.phase = 'explore';
+    this.message = message;
+  }
+
+  // -------------------------------------------------------------- surgery
+
+  useSurgery(): boolean {
+    const i = this.interactable('surgery');
+    if (this.phase !== 'explore' || i < 0) return false;
+    this.surgeryIndex = i;
+    this.phase = 'surgery';
+    this.message = 'Pay the arm, and it cuts out what is wrong with a card.';
+    return true;
+  }
+
+  /** Cut a bad part out of a card, for biomass. The bay stays open for more. */
+  operate(uid: number, opId: string): boolean {
+    if (this.phase !== 'surgery') return false;
     const card = this.findCard(uid);
-    if (!card) return false;
-    const cost = spliceCost(card, geneId);
-    if (cost > this.biomass) {
+    const op = card && surgeryOps(card).find((o) => o.id === opId);
+    if (!card || !op) return false;
+    if (op.price > this.biomass) {
       this.message = 'Not enough biomass.';
       return false;
     }
-    card.genes = splice(card, geneId).genes;
-    this.biomass -= cost;
-    const price = GENES[geneId].maxHpCost ?? 0;
-    if (price) {
-      this.maxHp = Math.max(1, this.maxHp - price);
-      this.hp = Math.min(this.hp, this.maxHp);
-    }
-    this.spliceOffers.delete(uid);
+    this.biomass -= op.price;
+    this.emit({ type: 'biomass', amount: -op.price });
+    applySurgery(card, opId);
     this.emit({ type: 'splice', uid });
     return true;
   }
 
-  leavePod(): void {
-    if (this.phase !== 'splice') return;
-    this.segments[this.podIndex].cleared = true;
-    this.podIndex = -1;
+  leaveSurgery(): void {
+    if (this.phase !== 'surgery') return;
+    this.segments[this.surgeryIndex].cleared = true;
+    this.surgeryIndex = -1;
     this.phase = 'explore';
-    this.message = 'The pod drains. It will not wake again.';
+    this.message = 'The arm folds back into the ceiling.';
   }
 
   findCard(uid: number): CardInstance | undefined {
@@ -1417,6 +1499,7 @@ export class Game {
       : [card];
     for (const t of targets) {
       t.genes = [...t.genes, gene.id];
+      t.prefix = undefined;
       t.mem = { ...t.mem, imprints: (t.mem?.imprints ?? 0) + 1 };
       this.emit({ type: 'imprint', uid: t.uid, stat: 'gene', amount: gene.defect ? -1 : 1, label: gene.name.toUpperCase() });
     }
@@ -1696,6 +1779,8 @@ export class Game {
       corpses: this.corpses,
       offers: this.offers,
       podIndex: this.podIndex,
+      vat: this.vat,
+      surgeryIndex: this.surgeryIndex,
       nextUid: this.nextUid,
       message: this.message,
       world: this.world,
@@ -1769,6 +1854,8 @@ export class Game {
       g.corpses = d.corpses;
       g.offers = d.offers;
       g.podIndex = d.podIndex;
+      g.vat = d.vat ?? null;
+      g.surgeryIndex = d.surgeryIndex ?? -1;
       g.nextUid = d.nextUid;
       g.message = d.message;
       g.world = d.world;

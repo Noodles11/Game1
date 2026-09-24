@@ -10,6 +10,9 @@ export type SurveyAction = 'override' | 'cut' | 'scan' | 'pry' | 'stim' | 'flare
  */
 export type Keyword = 'hold' | 'sibling' | 'unstable' | 'consume';
 
+/** Stats a pod mutation (or a surgery) can change. */
+export type MutStat = 'damage' | 'block' | 'hits' | 'cost' | 'tag' | 'heal' | 'draw' | 'lifesteal' | 'bioCost';
+
 /** Stats an Imprint can change. */
 export type ImprintStat = 'damage' | 'block' | 'tag';
 
@@ -72,6 +75,12 @@ export interface CardInstance {
   imprint?: Partial<Record<ImprintStat, number>>;
   /** Printed mid-fight: never part of the deck, gone when the fight ends. */
   temp?: boolean;
+  /** Pod mutations: permanent stat changes bought with biomass. */
+  mut?: Partial<Record<MutStat, number>>;
+  /** Name prefix from the latest mutation. */
+  prefix?: string;
+  /** Elite genes whose drawback was cut out at a surgery bay. */
+  purged?: string[];
   /** Per-card counters that drive Imprints (clean turns, health drawn, doses used, imprint count). */
   mem?: Record<string, number>;
 }
@@ -126,7 +135,7 @@ export interface EnemyState {
   phase2?: boolean;
 }
 
-export type FeatureKind = 'none' | 'door' | 'debris' | 'crate' | 'pod' | 'enemies' | 'event' | 'exit';
+export type FeatureKind = 'none' | 'door' | 'debris' | 'crate' | 'pod' | 'surgery' | 'enemies' | 'event' | 'exit';
 
 export interface Segment {
   feature: FeatureKind;
