@@ -2107,3 +2107,77 @@ body {
 .overlay.crowd .foe .name {
   font-size: 13px;
 }
+
+.hintbubble {
+  white-space: pre-line;
+}
+
+/* keyword stamps and imprint tally on cards */
+.card .kws {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: 1px;
+}
+
+.card .kw {
+  font-family: var(--mono);
+  font-style: normal;
+  font-weight: 700;
+  font-size: 7.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0 3px;
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.card.big .kw {
+  font-size: 10px;
+  padding: 1px 5px;
+}
+
+.card .imprint {
+  margin-top: auto;
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 8.5px;
+  letter-spacing: 0.02em;
+  padding: 0 4px;
+  background: var(--signal);
+  color: var(--paper);
+  box-shadow: 1.5px 1.5px 0 var(--ink);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.card.big .imprint {
+  font-size: 11px;
+}
+
+.card.imprinted {
+  border-color: var(--signal);
+  box-shadow: 3px 3px 0 var(--signal);
+}
+
+.card .genes + .imprint,
+.card .imprint + .kind {
+  margin-top: 2px;
+}
+
+.card .imprint,
+.card.big .imprint {
+  position: absolute;
+  top: 8px;
+  right: 3px;
+  margin: 0;
+  z-index: 1;
+  max-width: calc(100% - 30px);
+}
+
+.card.big .imprint {
+  top: 12px;
+  right: 8px;
+}

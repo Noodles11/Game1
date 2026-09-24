@@ -1,4 +1,4 @@
-import { GENES, cardDef, cardLevel, cardName, cardText, needsTarget, splice, spliceCost } from '../core/cards';
+import { GENES, cardDef, cardLevel, cardName, cardText, imprintTotal, needsTarget, splice, spliceCost } from '../core/cards';
 import { ENEMIES } from '../core/enemies';
 import { FORCE_COST, Game, MAX_OXYGEN, freshMeta, type GameEvent } from '../core/game';
 import type { CardInstance, DeckKind, EnemyState, MapNode, Meta } from '../core/types';
@@ -58,6 +58,12 @@ const HINTS: Record<string, string> = {
   splits: 'Splits — the first time it dies, it breaks into two copies at half health.',
   allies: 'Chorus — gives every other enemy strength. Kill it first.',
   summon: 'Shed — calls another enemy into the fight.',
+  hold: 'Hold — stays in your hand at the end of your turn. It takes one of your draw slots.',
+  sibling: 'Sibling — printed from one line. Every Imprint one copy gets, all copies get, and new copies arrive already grown.',
+  unstable: 'Unstable — the result is random, and one time in three it is a defect.',
+  consume: 'Consume — removes a card from your deck for the rest of the run. Grief Engines remember every one.',
+  imprint: 'Imprint — a permanent change this card earned in play. No limit. It stays for the whole run.',
+  defect: 'Defect — a bad mutation from an Unstable effect. It stays, like any gene.',
   boons: 'Boons — permanent. Earned by killing a world boss. They stay through death and every new clone.',
   'node-fight': 'Fight — a short corridor with regular enemies at the end.',
   'node-elite': 'Elite — one tough enemy. Rewards a card from this world, plus biomass.',
@@ -181,13 +187,24 @@ export class App {
 
   private firePress(el: HTMLElement) {
     if (!this.pressStart) return;
-    const text = HINTS[el.dataset.hint!];
+    const text = el.dataset.hint === 'card' ? this.cardHintText(Number(el.dataset.uid)) : HINTS[el.dataset.hint!];
     const { x, y } = this.pressStart;
     this.pressStart = null;
     if (!text) return;
     this.suppressClick = true;
     if ('vibrate' in navigator) navigator.vibrate(12);
     this.showHint(text, x, y);
+  }
+
+  /** Full rules of a card, for a long press on it. */
+  private cardHintText(uid: number): string {
+    const g = this.game;
+    const card = g.findCard(uid) ?? g.combat?.hand.find((c) => c.uid === uid) ?? g.sHand.find((c) => c.uid === uid);
+    if (!card) return '';
+    const def = cardDef(card);
+    const lines = cardText(card, g.displayStats(card));
+    const kw = (def.keywords ?? []).map((k) => HINTS[k]).filter(Boolean);
+    return `${cardName(card)} — ${lines.join(' ')}${kw.length ? '\n\n' + kw.join('\n') : ''}`;
   }
 
   private showHint(text: string, x: number, y: number) {
@@ -247,6 +264,8 @@ export class App {
       case 'leave-pod': g.leavePod(); break;
       case 'mod': g.chooseModifier(el.dataset.mod as 'biomass' | 'integrity' | 'energy'); break;
       case 'empower': g.empowerTarget(uid); break;
+      case 'pick': g.pickCard(uid); break;
+      case 'skip-pick': g.skipPick(); break;
       case 'world': g.chooseWorld(el.dataset.world!); break;
       case 'passage': this.selected = null; this.mapOpen = false; g.travel(Number(el.dataset.node)); break;
       case 'map': this.mapOpen = !this.mapOpen; break;
@@ -395,6 +414,12 @@ export class App {
         break;
       }
       case 'empower': this.float(`+${e.amount} ARMED`, 'bio', 50, 40); break;
+      case 'imprint':
+        // the card reprints itself with its new line of code
+        this.printStart.set(e.uid, performance.now());
+        this.float(`IMPRINT ${e.label}`, e.amount < 0 ? 'hurt' : 'res', 50, 26);
+        break;
+      case 'consumed': this.float('CONSUMED', 'hurt', 50, 30); break;
       case 'whisper': this.say(e.text); break;
       case 'line': {
         const x = this.slotOf(e.uid);
@@ -604,18 +629,32 @@ export class App {
     const cls = [
       'card', def.deck, lvl > 0 ? 'evolved' : '', buffed ? 'buffed' : '', opts.big ? 'big' : '',
       this.selected === card.uid ? 'selected' : '', opts.dim ? 'dim' : '',
-      opts.print !== undefined ? 'printing' : '',
+      opts.print !== undefined ? 'printing' : '', card.mem?.imprints ? 'imprinted' : '',
     ].filter(Boolean).join(' ');
     // a card re-rendered mid-print carries on where it was (negative delay)
     const style = opts.print !== undefined ? `style="--pd:${Math.round(-opts.print)}ms"` : '';
     const genes = lvl > 0 ? `<span class="genes" data-hint="genes" title="${lvl} genes">${'<i></i>'.repeat(Math.min(lvl, 8))}</span>` : '';
     const flavor = opts.big ? `<span class="flavor">${esc(def.flavor)}</span>` : '';
+    const imp = card.imprint;
+    const marks = card.mem?.imprints ?? 0;
+    const impParts = imp
+      ? (['damage', 'block', 'tag'] as const)
+        .filter((k) => imp[k])
+        .map((k) => `${imp[k]! > 0 ? '+' : ''}${imp[k]}${k === 'damage' ? '⚔' : k === 'block' ? '▢' : '⌖'}`)
+      : [];
+    const defects = card.genes.filter((gid) => GENES[gid]?.defect).length;
+    const imprint = marks || imprintTotal(card) || defects
+      ? `<span class="imprint" data-hint="${defects ? 'defect' : 'imprint'}">${opts.big ? `${'|'.repeat(Math.min(marks, 8))}${marks > 8 ? `×${marks}` : ''} ` : '⟐'}${impParts.join(' ') || (defects ? 'DEFECT' : '')}</span>`
+      : '';
+    const kws = (def.keywords ?? []).map((k) => `<i class="kw" data-hint="${k}">${k}</i>`).join('');
     return `
-      <button class="${cls}" data-act="${opts.act ?? 'card'}" data-uid="${card.uid}" ${style} ${opts.extra ?? ''}>
+      <button class="${cls}" data-act="${opts.act ?? 'card'}" data-uid="${card.uid}" data-hint="card" ${style} ${opts.extra ?? ''}>
         ${cardArt(def.id)}
         <span class="cost" data-hint="cost" aria-label="cost">${s.cost}</span>
+        ${kws ? `<span class="kws">${kws}</span>` : ''}
         <span class="name">${esc(cardName(card))}</span>
-        <span class="text">${cardText(card, s).join(' ')}</span>
+        <span class="text">${cardText(card, s, !opts.big).filter((l) => !['Hold.', 'Sibling.', 'Unstable.'].includes(l)).join(' ')}</span>
+        ${imprint}
         ${flavor}
         ${genes}
         <span class="kind">${def.deck === 'combat' ? 'tactic' : 'survey'}</span>
@@ -626,6 +665,10 @@ export class App {
     const g = this.game;
     if (g.phase === 'combat' && g.combat?.pendingEmpower) {
       this.dock.innerHTML = this.empowerHtml(g.combat.pendingEmpower.amount);
+      return;
+    }
+    if (g.phase === 'combat' && g.combat?.pendingPick) {
+      this.dock.innerHTML = this.pickHtml(g.combat.pendingPick.kind);
       return;
     }
     this.trackPrinting(
@@ -705,6 +748,20 @@ export class App {
     if (t === undefined) return undefined;
     const elapsed = performance.now() - t;
     return elapsed > PRINT_MS ? undefined : elapsed;
+  }
+
+  private pickHtml(kind: 'donor' | 'flask' | 'cannibal'): string {
+    const g = this.game;
+    const cards = g.combat!.hand.map((c) => this.cardHtml(c, { act: 'pick' }));
+    const ask = {
+      donor: '<strong>Choose a card to receive the dose.</strong> <em>Imprint +2, for the rest of the run.</em>',
+      flask: '<strong>Choose a card to mutate.</strong> <em>A free gene. One time in three, a defect.</em>',
+      cannibal: '<strong>Choose a card to consume.</strong> <em>Gone for good. Its damage and plating become this card’s.</em>',
+    }[kind];
+    return `
+      <p class="hint">${ask}</p>
+      <div class="hand">${cards.join('')}</div>
+      <div class="bar"><span class="spacer"></span><button class="btn" data-act="skip-pick">skip</button></div>`;
   }
 
   private empowerHtml(amount: number): string {

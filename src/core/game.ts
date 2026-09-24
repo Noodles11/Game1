@@ -1,11 +1,12 @@
 import {
   REWARD_COMBAT, REWARD_SURVEY, STARTER_COMBAT, STARTER_SURVEY,
-  cardDef, cardStats, genesFor, needsTarget, splice, spliceCost,
+  addImprint, cardDef, cardStats, genesFor, mutationsFor, needsTarget, splice, spliceCost,
 } from './cards';
 import { ENEMIES } from './enemies';
 import { Rng } from './rng';
 import type {
-  CardInstance, CardStats, Corpse, DeckKind, EnemyState, Intent, MapNode, Meta, Modifiers, Segment, Statuses, WorldMap,
+  CardInstance, CardStats, Corpse, DeckKind, EnemyState, ImprintStat, Intent, MapNode, Meta, Modifiers, Segment, Statuses,
+  WorldMap,
 } from './types';
 import { BOONS, EVENTS, LOGS, WORLDS, generateMap } from './worlds';
 
@@ -33,7 +34,17 @@ export type GameEvent =
   | { type: 'warp' }
   | { type: 'resonate' }
   | { type: 'summon'; uid: number }
-  | { type: 'reflect'; amount: number };
+  | { type: 'reflect'; amount: number }
+  | { type: 'imprint'; uid: number; stat: ImprintStat | 'gene'; amount: number; label: string }
+  | { type: 'consumed'; uid: number; defId: string };
+
+/** A card waiting for the player to choose another card in hand. */
+export interface PendingPick {
+  kind: 'donor' | 'flask' | 'cannibal';
+  source: number;
+  /** Resonance can resolve the source twice. */
+  times: number;
+}
 
 export interface CombatState {
   enemies: EnemyState[];
@@ -51,6 +62,15 @@ export interface CombatState {
   playedThisTurn: number;
   playedThisFight: number;
   lastWasAttack: boolean;
+  /** Unscarred Edge's clean-round bonus, by card uid. Wiped by a hit. */
+  held: Map<number, number>;
+  /** Integrity was lost since the last player turn began. */
+  hurtRound: boolean;
+  /** Callus cards whose plating is up this round. */
+  platers: number[];
+  /** Every card uid played this fight. */
+  played: number[];
+  pendingPick: PendingPick | null;
 }
 
 export interface Offer {
@@ -345,7 +365,7 @@ export class Game {
     if (this.phase === 'map') {
       if (s.cost > this.oxygen) return 'Not enough oxygen.';
       switch (def.action) {
-        case 'scan': return this.mapAhead(2).some((n) => n.hidden) ? null : 'Nothing hidden ahead.';
+        case 'scan': case 'notes': return this.mapAhead(2).some((n) => n.hidden) ? null : 'Nothing hidden ahead.';
         case 'flare': return this.mapAhead(1).some((n) => n.kind === 'fight' || n.kind === 'elite') ? null : 'No fight ahead to light.';
         case 'stim': return this.hp < this.maxHp ? null : 'Integrity already full.';
         case 'override': case 'cut': case 'pry': return 'Nothing to use that on here.';
@@ -379,10 +399,12 @@ export class Game {
     this.message = '';
 
     if (this.phase === 'map') {
-      if (def.action === 'scan') {
+      if (def.action === 'scan' || def.action === 'notes') {
+        const found = this.mapAhead(2).filter((n) => n.hidden).length;
         for (const n of this.mapAhead(2)) n.hidden = false;
         this.message = 'The echo maps the caves ahead.';
         this.emit({ type: 'reveal' });
+        if (def.action === 'notes') this.fieldNotes(found);
       } else if (def.action === 'flare') {
         for (const n of this.mapAhead(1)) if (n.kind === 'fight' || n.kind === 'elite') n.flared += s.exposed;
         this.message = 'Red light floods the next row. Whatever waits there will flinch.';
@@ -409,6 +431,14 @@ export class Game {
         this.message = 'The echo returns. Shapes, ahead.';
         this.emit({ type: 'reveal' });
         break;
+      case 'notes': {
+        const ahead = this.segments.slice(this.pos + 1, this.pos + 4);
+        const found = ahead.filter((x) => !x.revealed && x.feature !== 'none').length;
+        this.light(3, 0);
+        this.emit({ type: 'reveal' });
+        this.fieldNotes(found);
+        break;
+      }
       case 'flare':
         this.light(2, s.exposed);
         this.message = 'Red light floods the corridor.';
@@ -430,6 +460,15 @@ export class Game {
       this.message = this.exploreHint();
     }
     return true;
+  }
+
+  /** Field Notes: each hidden thing found teaches a random tactic +1 damage. */
+  private fieldNotes(found: number) {
+    const fighters = this.combatDeck.filter((c) => cardStats(c).damage > 0);
+    for (let i = 0; i < found && fighters.length; i++) this.imprint(this.rng.pick(fighters), 'damage', 1);
+    this.message = found
+      ? `You write down ${found} thing${found > 1 ? 's' : ''} you should not have seen. Your tactics read it.`
+      : 'Nothing new to write down. The page stays blank.';
   }
 
   private light(range: number, exposed: number) {
@@ -462,6 +501,9 @@ export class Game {
     if (index !== null) {
       const offer = this.offers[index];
       const card = this.makeCard(offer.defId);
+      // a new Sibling arrives already knowing what the others learned
+      const kin = this.combatDeck.find((o) => o.defId === offer.defId && cardDef(o).keywords?.includes('sibling'));
+      if (kin?.imprint) card.imprint = { ...kin.imprint };
       if (offer.deck === 'combat') this.combatDeck.push(card);
       else {
         this.surveyDeck.push(card);
@@ -769,6 +811,11 @@ export class Game {
       playedThisTurn: 0,
       playedThisFight: 0,
       lastWasAttack: false,
+      held: new Map(),
+      hurtRound: false,
+      platers: [],
+      played: [],
+      pendingPick: null,
     };
     this.playerStatus = freshStatus();
     this.corpses = [];
@@ -807,6 +854,18 @@ export class Game {
 
   private startPlayerTurn() {
     const c = this.combat!;
+    // Unscarred Edge: a clean round while held sharpens it.
+    if (c.turn > 0 && !c.hurtRound) {
+      for (const card of c.hand) {
+        if (card.defId !== 'unscarred') continue;
+        c.held.set(card.uid, (c.held.get(card.uid) ?? 0) + 2);
+        const clean = (card.mem?.clean ?? 0) + 1;
+        card.mem = { ...card.mem, clean };
+        if (clean % 3 === 0) this.imprint(card, 'damage', 1);
+      }
+    }
+    c.hurtRound = false;
+    c.platers = [];
     c.turn++;
     this.playerBlock = Math.min(this.playerBlock, this.retainBlock);
     this.retainBlock = 0;
@@ -814,7 +873,8 @@ export class Game {
     c.lastWasAttack = false;
     c.energyCap = MAX_ENERGY + (this.modifiers.energy ? 1 : 0);
     c.energy = c.energyCap - (c.ambush && c.turn === 1 ? 1 : 0);
-    this.drawCombat(COMBAT_HAND);
+    // held cards take their slots
+    this.drawCombat(Math.max(0, COMBAT_HAND - c.hand.length));
   }
 
   private drawCombat(n: number) {
@@ -836,12 +896,13 @@ export class Game {
   combatPlayable(card: CardInstance): string | null {
     if (this.phase !== 'combat' || !this.combat) return 'Not now.';
     if (cardStats(card).cost > this.combat.energy) return 'Not enough energy.';
+    if ((card.defId === 'donor' || card.defId === 'flask') && this.combat.hand.length < 2) return 'No other card in hand.';
     return null;
   }
 
   /** Bonus damage this card currently carries from Empower, this fight. */
   combatBonus(card: CardInstance): number {
-    return this.combat?.buffs.get(card.uid) ?? 0;
+    return (this.combat?.buffs.get(card.uid) ?? 0) + (this.combat?.held.get(card.uid) ?? 0);
   }
 
   /** Stats for display: base stats plus any Empower bonus, so the UI shows the true numbers. */
@@ -906,12 +967,19 @@ export class Game {
     const chained = c.lastWasAttack;
     c.playedThisTurn++;
     c.playedThisFight++;
+    c.played.push(card.uid);
+    let resolved = 0;
     for (let r = 0; r < times; r++) {
       if (r > 0) this.emit({ type: 'resonate' });
       this.resolveCard(card, s, target, chained);
+      resolved++;
       if (this.isDead || this.livingEnemies().length === 0) break;
     }
     if (this.isDead) return true;
+    if (resolved === 2 && card.defId === 'echoscar') {
+      this.imprint(card, 'damage', 1);
+      for (const o of this.combatDeck) if (o.defId === 'resonant') this.imprint(o, 'damage', 1);
+    }
     c.lastWasAttack = s.damage > 0;
     this.message = '';
 
@@ -937,6 +1005,9 @@ export class Game {
     }
     const bonus = this.combatBonus(card);
     const hits = s.hits + (chained ? s.chain : 0) + (living.length >= 2 ? s.swarm : 0);
+    const taggedBefore = living.filter((e) => e.status.tagged > 0).length;
+    const targetTagged = targets.some((t) => t.status.tagged > 0);
+    const aliveBefore = targets.filter((t) => t.alive);
     let dealt = 0;
     for (const t of targets) {
       let extra = 0;
@@ -960,12 +1031,129 @@ export class Game {
         if (corpse) corpse.tagged = true;
       }
     }
+    const kills = aliveBefore.filter((t) => !t.alive).length;
+    this.afterResolve(card, s, kills, targetTagged ? taggedBefore : 0);
     c.energy += s.energy;
     if (s.heal > 0) this.healPlayer(s.heal);
     if (s.draw > 0) this.drawCombat(s.draw);
     if (s.drain > 0 && dealt > 0) this.gainBiomass(Math.floor(dealt * s.drain / 100));
     if (s.empower > 0 && c.hand.length > 0) {
       c.pendingEmpower = { amount: (c.pendingEmpower?.amount ?? 0) + s.empower };
+    }
+  }
+
+  /** Imprint effects that fire when a card resolves. */
+  private afterResolve(card: CardInstance, s: CardStats, kills: number, taggedHeal: number) {
+    const c = this.combat!;
+    switch (card.defId) {
+      case 'needle':
+        if (taggedHeal > 0) {
+          this.healPlayer(taggedHeal);
+          let drawn = (card.mem?.drawn ?? 0) + taggedHeal;
+          while (drawn >= 6) {
+            drawn -= 6;
+            this.imprint(card, 'tag', 1);
+          }
+          card.mem = { ...card.mem, drawn };
+        }
+        break;
+      case 'feeding':
+        if (kills > 0) this.imprint(card, 'damage', 2 * kills);
+        break;
+      case 'hunger':
+        if (kills > 0) this.imprint(card, 'damage', 3 * kills);
+        break;
+      case 'callus':
+        if (s.block > 0 && !c.platers.includes(card.uid)) c.platers.push(card.uid);
+        break;
+      case 'donor':
+      case 'flask':
+      case 'cannibal': {
+        if (c.hand.length === 0) break;
+        const p = c.pendingPick;
+        if (p && p.kind === card.defId && p.source === card.uid) p.times++;
+        else c.pendingPick = { kind: card.defId, source: card.uid, times: 1 };
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  /** Give a card a permanent Imprint. Siblings share it. */
+  private imprint(card: CardInstance, stat: ImprintStat, n: number) {
+    if (n === 0) return;
+    const def = cardDef(card);
+    const targets = def.keywords?.includes('sibling')
+      ? this.combatDeck.filter((o) => cardDef(o).keywords?.includes('sibling'))
+      : [card];
+    if (!targets.includes(card)) targets.push(card);
+    const label = `${n > 0 ? '+' : ''}${n} ${stat === 'block' ? 'PLATE' : stat.toUpperCase()}`;
+    for (const t of targets) {
+      addImprint(t, stat, n);
+      this.emit({ type: 'imprint', uid: t.uid, stat, amount: n, label });
+    }
+  }
+
+  /** Remove a card from the run for good. Grief Engines grow from it. */
+  private consumeCard(card: CardInstance) {
+    const c = this.combat;
+    const drop = (list: CardInstance[]) => list.filter((o) => o.uid !== card.uid);
+    this.combatDeck = drop(this.combatDeck);
+    if (c) {
+      c.hand = drop(c.hand);
+      c.draw = drop(c.draw);
+      c.discard = drop(c.discard);
+    }
+    this.emit({ type: 'consumed', uid: card.uid, defId: card.defId });
+    for (const g of this.combatDeck) if (g.defId === 'grief') this.imprint(g, 'block', 1);
+  }
+
+  /** Resolve a pending Donor / Flask / Cannibal by choosing a card in hand. */
+  pickCard(uid: number): boolean {
+    const c = this.combat;
+    const p = c?.pendingPick;
+    if (!c || !p) return false;
+    const target = c.hand.find((h) => h.uid === uid);
+    const source = this.combatDeck.find((o) => o.uid === p.source);
+    if (!target || !source || target === source) return false;
+    c.pendingPick = null;
+    if (p.kind === 'donor') {
+      const stat: ImprintStat = cardStats(target).damage > 0 ? 'damage' : 'block';
+      this.imprint(target, stat, 2 * p.times);
+      const doses = (source.mem?.doses ?? 0) + 1;
+      source.mem = { ...source.mem, doses };
+      if (doses >= 3) this.consumeCard(source);
+    } else if (p.kind === 'flask') {
+      for (let i = 0; i < p.times; i++) this.mutate(target);
+      this.consumeCard(source);
+    } else {
+      const v = cardStats(target);
+      this.consumeCard(target);
+      if (v.damage > 0) this.imprint(source, 'damage', v.damage);
+      if (v.block > 0) this.imprint(source, 'block', v.block);
+    }
+    return true;
+  }
+
+  skipPick(): void {
+    if (this.combat) this.combat.pendingPick = null;
+  }
+
+  /** Unstable: a free random gene, and one time in three a defect. */
+  private mutate(card: CardInstance) {
+    const { good, bad } = mutationsFor(card);
+    const pool = bad.length && this.rng.next() < 1 / 3 ? bad : good.length ? good : bad;
+    if (!pool.length) return;
+    const gene = this.rng.pick(pool);
+    const def = cardDef(card);
+    const targets = def.keywords?.includes('sibling')
+      ? this.combatDeck.filter((o) => cardDef(o).keywords?.includes('sibling'))
+      : [card];
+    for (const t of targets) {
+      t.genes = [...t.genes, gene.id];
+      t.mem = { ...t.mem, imprints: (t.mem?.imprints ?? 0) + 1 };
+      this.emit({ type: 'imprint', uid: t.uid, stat: 'gene', amount: gene.defect ? -1 : 1, label: gene.name.toUpperCase() });
     }
   }
 
@@ -1032,8 +1220,10 @@ export class Game {
     const c = this.combat;
     if (!c || this.phase !== 'combat') return;
     c.pendingEmpower = null;
-    c.discard.push(...c.hand);
-    c.hand = [];
+    c.pendingPick = null;
+    const holds = (h: CardInstance) => !!cardDef(h).keywords?.includes('hold');
+    c.discard.push(...c.hand.filter((h) => !holds(h)));
+    c.hand = c.hand.filter(holds);
     this.tickStatus(this.playerStatus);
 
     for (const e of [...c.enemies]) {
@@ -1076,7 +1266,30 @@ export class Game {
     const taken = amount - blocked;
     this.hp -= taken;
     this.emit({ type: 'playerHit', amount: taken, blocked });
-    if (this.hp <= 0) this.die();
+    if (this.hp <= 0) {
+      this.die();
+      return;
+    }
+    const c = this.combat;
+    if (!c) return;
+    if (taken > 0) {
+      c.hurtRound = true;
+      for (const card of c.hand) {
+        if (card.defId === 'unscarred') c.held.delete(card.uid);
+        if (card.defId === 'scartissue') {
+          const others = this.combatDeck.filter((o) => o.uid !== card.uid);
+          if (others.length) {
+            const o = this.rng.pick(others);
+            this.imprint(o, cardStats(o).damage > 0 ? 'damage' : 'block', 1);
+          }
+        }
+      }
+    } else if (blocked > 0 && amount > 0) {
+      for (const uid of c.platers) {
+        const callus = this.combatDeck.find((o) => o.uid === uid);
+        if (callus) this.imprint(callus, 'block', 1);
+      }
+    }
   }
 
   private damagePlayerRaw(amount: number) {
@@ -1092,6 +1305,12 @@ export class Game {
   }
 
   private winCombat() {
+    const c = this.combat;
+    if (c) {
+      for (const card of this.combatDeck) {
+        if (card.defId === 'hunger' && !c.played.includes(card.uid)) this.imprint(card, 'damage', -2);
+      }
+    }
     this.segments[this.pos].cleared = true;
     this.phase = 'harvest';
     this.message = 'Harvest the biomass. Eat it to mend, or render it to splice.';
@@ -1174,7 +1393,9 @@ export class Game {
       sHand: this.sHand,
       sDiscard: this.sDiscard,
       oxygen: this.oxygen,
-      combat: this.combat ? { ...this.combat, buffs: [...this.combat.buffs.entries()] } : null,
+      combat: this.combat
+        ? { ...this.combat, buffs: [...this.combat.buffs.entries()], held: [...this.combat.held.entries()] }
+        : null,
       playerBlock: this.playerBlock,
       playerStatus: this.playerStatus,
       corpses: this.corpses,
@@ -1191,6 +1412,24 @@ export class Game {
       retainBlock: this.retainBlock,
       seenEvents: this.seenEvents,
     });
+  }
+
+  /**
+   * JSON gives the piles their own copies of each card. Point them back at the deck's objects,
+   * so Imprints and splices made during play land on the one true card.
+   */
+  private relinkPiles() {
+    const combat = new Map(this.combatDeck.map((c) => [c.uid, c]));
+    const survey = new Map(this.surveyDeck.map((c) => [c.uid, c]));
+    const link = (list: CardInstance[], by: Map<number, CardInstance>) => list.map((c) => by.get(c.uid) ?? c);
+    if (this.combat) {
+      this.combat.hand = link(this.combat.hand, combat);
+      this.combat.draw = link(this.combat.draw, combat);
+      this.combat.discard = link(this.combat.discard, combat);
+    }
+    this.sHand = link(this.sHand, survey);
+    this.sDraw = link(this.sDraw, survey);
+    this.sDiscard = link(this.sDiscard, survey);
   }
 
   /** Restore a run saved by `serialize()`. Returns null on any mismatch or corruption. */
@@ -1214,7 +1453,15 @@ export class Game {
       g.sHand = d.sHand;
       g.sDiscard = d.sDiscard;
       g.oxygen = d.oxygen;
-      g.combat = d.combat ? { ...d.combat, buffs: new Map(d.combat.buffs) } : null;
+      g.combat = d.combat
+        ? {
+          held: [], hurtRound: false, platers: [], played: [], pendingPick: null,
+          ...d.combat,
+          buffs: new Map(d.combat.buffs),
+        }
+        : null;
+      if (g.combat) g.combat.held = new Map(d.combat.held ?? []);
+      g.relinkPiles();
       g.playerBlock = d.playerBlock;
       g.playerStatus = d.playerStatus;
       g.corpses = d.corpses;

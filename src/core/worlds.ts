@@ -68,7 +68,7 @@ export const WORLDS: Record<string, WorldDef> = {
     elites: [['refractor'], ['refractor', 'geode']],
     boss: 'prism',
     bossWhisper: 'The cavern opens into a cathedral of glass. Something vast turns to look at you.',
-    cards: ['resonant', 'shatter', 'crystalskin', 'splitlens'],
+    cards: ['resonant', 'shatter', 'crystalskin', 'splitlens', 'echoscar', 'flask'],
     events: ['humming-column', 'frozen-print', 'echo-pool', 'probe-wreck'],
     boons: ['crystal-bones', 'resonant-core'],
     endingTitle: 'the lattice remembers',

@@ -1,4 +1,4 @@
-import type { CardDef, CardInstance, CardStats, DeckKind } from './types';
+import type { CardDef, CardInstance, CardStats, DeckKind, ImprintStat } from './types';
 
 const EMPTY: CardStats = {
   cost: 0,
@@ -89,6 +89,84 @@ export const CARDS: Record<string, CardDef> = {
     flavor: 'Half of what it takes, it gives back to you.',
   },
 
+  // ---- Imprint cards: they change themselves, or others, for the rest of the run ----
+  needle: {
+    id: 'needle', name: 'Harvest Needle', deck: 'combat', glyph: '⟟',
+    base: { cost: 1, damage: 3, tag: 1 },
+    rules: ['If the target was tagged: heal 1 per tagged enemy.', 'Every 6 health drawn: Imprint Tag +1.'],
+    brief: 'Tagged target: heal. Grows Tag.',
+    flavor: 'It drinks from the marked ones first. It remembers who was marked.',
+  },
+  unscarred: {
+    id: 'unscarred', name: 'Unscarred Edge', deck: 'combat', glyph: '⟋',
+    base: { cost: 1, damage: 4 }, keywords: ['hold'],
+    rules: ['Each round you lose no integrity while it is held: +2 damage this fight. A hit wipes it.', 'Every 3 clean rounds: Imprint +1 damage.'],
+    brief: 'Clean rounds: +2. Grows.',
+    flavor: 'A print that has never been cut. It intends to stay that way.',
+  },
+  scartissue: {
+    id: 'scartissue', name: 'Scar Tissue', deck: 'combat', glyph: '≈',
+    base: { cost: 1, block: 3 }, keywords: ['hold'],
+    rules: ['Each time you lose integrity while it is held: Imprint +1 on another random tactic.'],
+    brief: 'Hurt while held: imprint a tactic.',
+    flavor: 'Every wound rewrites a line of you. Some lines come back stronger.',
+  },
+  feeding: {
+    id: 'feeding', name: 'Feeding Blade', deck: 'combat', glyph: '⟆',
+    base: { cost: 1, damage: 5 },
+    rules: ['Each kill: Imprint +2 damage.'],
+    brief: 'Kill: +2 forever.',
+    flavor: 'It learns the shape of everything it opens.',
+  },
+  callus: {
+    id: 'callus', name: 'Callus', deck: 'combat', glyph: '▣',
+    base: { cost: 1, block: 4 },
+    rules: ['Each hit its plating fully stops: Imprint +1 plating.'],
+    brief: 'Full block: +1 plate forever.',
+    flavor: 'Skin that remembers every blow, and thickens where it landed.',
+  },
+  donor: {
+    id: 'donor', name: 'Donor Cell', deck: 'combat', glyph: '⊕',
+    base: { cost: 0 }, keywords: ['consume'],
+    rules: ['Choose a card in hand: Imprint +2 damage (or +2 plating).'],
+    brief: 'Give a card +2 forever.',
+    flavor: 'Three doses of someone else. Then nothing left of them at all.',
+  },
+  sibling: {
+    id: 'sibling', name: 'Sibling Print', deck: 'combat', glyph: '⧉',
+    base: { cost: 1, damage: 4 }, keywords: ['sibling'],
+    brief: 'Shares every Imprint.',
+    flavor: 'Printed from the same line. What one of them learns, all of them know.',
+  },
+  cannibal: {
+    id: 'cannibal', name: 'Cannibal Print', deck: 'combat', glyph: '⊘',
+    base: { cost: 1, damage: 2 }, keywords: ['consume'],
+    rules: ['Then Consume another card in hand: Imprint its damage and plating onto this.'],
+    brief: 'Then eat a card in hand.',
+    flavor: 'The failed prints have to go somewhere. This is where.',
+  },
+  flask: {
+    id: 'flask', name: 'Mutagen Flask', deck: 'combat', glyph: '⚗',
+    base: { cost: 1 }, keywords: ['unstable', 'consume'],
+    rules: ['Choose a card in hand: splice a free random gene. One time in three it is a defect. Consumed.'],
+    brief: 'Random gene to a card. Risky.',
+    flavor: 'Unlabelled. Warm. The printer rejected it for a reason.',
+  },
+  hunger: {
+    id: 'hunger', name: 'Hunger Clock', deck: 'combat', glyph: '◷',
+    base: { cost: 2, damage: 11 },
+    rules: ['Each kill: Imprint +3 damage.', 'A fight you win without playing it: Imprint −2 damage.'],
+    brief: 'Kill: +3. Unused: −2.',
+    flavor: 'It has to be fed. It counts the fights it wasn’t.',
+  },
+  grief: {
+    id: 'grief', name: 'Grief Engine', deck: 'combat', glyph: '⊗',
+    base: { cost: 1, block: 3, draw: 1 },
+    rules: ['Whenever any card is Consumed: Imprint +1 plating.'],
+    brief: 'Card consumed: +1 forever.',
+    flavor: 'It keeps what the others lose. It is getting heavy.',
+  },
+
   // ---- Kessra (Glass Caves) ----
   resonant: {
     id: 'resonant', name: 'Resonant Strike', deck: 'combat', glyph: '≀',
@@ -109,6 +187,13 @@ export const CARDS: Record<string, CardDef> = {
     id: 'splitlens', name: 'Split Lens', deck: 'combat', glyph: '⟁',
     base: { cost: 1, damage: 3, aoe: true, swarm: 1 },
     flavor: 'One beam in. Many beams out.',
+  },
+  echoscar: {
+    id: 'echoscar', name: 'Echo Scar', deck: 'combat', glyph: '≋',
+    base: { cost: 1, damage: 4 },
+    rules: ['When Resonance plays it twice: Imprint +1 damage on it and every Resonant Strike.'],
+    brief: 'Resonance: +1 forever.',
+    flavor: 'The cave repeats you. Each echo is cut a little deeper.',
   },
 
   // ---- Survey deck ----
@@ -142,6 +227,13 @@ export const CARDS: Record<string, CardDef> = {
     base: { cost: 1, exposed: 1 },
     flavor: 'Red light. Things in it flinch.',
   },
+  notes: {
+    id: 'notes', name: 'Field Notes', deck: 'survey', action: 'notes', glyph: '✎',
+    base: { cost: 1 },
+    rules: ['For each hidden thing it reveals: Imprint +1 damage on a random tactic.'],
+    brief: 'Each find: +1 dmg to a tactic.',
+    flavor: 'Write down what you find. The next print will read it.',
+  },
   beacon: {
     id: 'beacon', name: 'Beacon', deck: 'survey', glyph: '◈',
     base: { cost: 1, draw: 1, biomass: 1 },
@@ -151,8 +243,11 @@ export const CARDS: Record<string, CardDef> = {
 
 export const STARTER_COMBAT = ['scalpel', 'scalpel', 'scalpel', 'scalpel', 'brace', 'brace', 'harpoon', 'flense'];
 export const STARTER_SURVEY = ['override', 'override', 'cutter', 'cutter', 'scan', 'pry', 'stim'];
-export const REWARD_COMBAT = ['scatter', 'spike', 'bonesaw', 'adrenal', 'echo', 'hook', 'flense', 'harpoon', 'graft', 'jack', 'siphon'];
-export const REWARD_SURVEY = ['flare', 'scan', 'stim', 'pry', 'override', 'cutter', 'beacon'];
+export const REWARD_COMBAT = [
+  'scatter', 'spike', 'bonesaw', 'adrenal', 'echo', 'hook', 'flense', 'harpoon', 'graft', 'jack', 'siphon',
+  'needle', 'unscarred', 'scartissue', 'feeding', 'callus', 'donor', 'sibling', 'cannibal', 'flask', 'hunger', 'grief',
+];
+export const REWARD_SURVEY = ['flare', 'scan', 'stim', 'pry', 'override', 'cutter', 'beacon', 'notes'];
 
 // ---- Genes: how cards evolve ----
 
@@ -165,6 +260,8 @@ export interface Gene {
   text: string;
   canApply: (s: CardStats, def: CardDef) => boolean;
   apply: (s: CardStats) => void;
+  /** A defect: only ever arrives from an Unstable mutation, never offered at a pod. */
+  defect?: boolean;
 }
 
 export const GENES: Record<string, Gene> = {
@@ -221,6 +318,14 @@ export const GENES: Record<string, Gene> = {
     text: '+1 hit, −2 damage', canApply: (s) => s.damage >= 4 && s.hits < 4,
     apply: (s) => { s.hits += 1; s.damage -= 2; },
   },
+  brittle: {
+    id: 'brittle', name: 'Brittle', prefix: 'Brittle', deck: 'combat', cost: 0, defect: true,
+    text: '−2 damage (defect)', canApply: (s) => s.damage > 0, apply: (s) => { s.damage -= 2; },
+  },
+  sluggish: {
+    id: 'sluggish', name: 'Sluggish', prefix: 'Sluggish', deck: 'any', cost: 0, defect: true,
+    text: '+1 cost (defect)', canApply: () => true, apply: (s) => { s.cost += 1; },
+  },
   leech: {
     id: 'leech', name: 'Leech', prefix: 'Leeching', deck: 'combat', cost: 5,
     text: '+25% damage dealt as biomass', canApply: (s) => s.damage > 0, apply: (s) => { s.drain += 25; },
@@ -236,6 +341,15 @@ export function cardDef(card: CardInstance): CardDef {
 export function cardStats(card: CardInstance): CardStats {
   const s: CardStats = { ...EMPTY, ...cardDef(card).base };
   for (const g of card.genes) GENES[g].apply(s);
+  const im = card.imprint;
+  if (im) {
+    s.damage += im.damage ?? 0;
+    s.block += im.block ?? 0;
+    s.tag += im.tag ?? 0;
+  }
+  s.damage = Math.max(0, s.damage);
+  s.block = Math.max(0, s.block);
+  s.cost = Math.max(0, s.cost);
   return s;
 }
 
@@ -259,8 +373,30 @@ export function genesFor(card: CardInstance): Gene[] {
   const def = cardDef(card);
   const s = cardStats(card);
   return Object.values(GENES).filter(
-    (g) => (g.deck === 'any' || g.deck === def.deck) && g.canApply(s, def),
+    (g) => !g.defect && (g.deck === 'any' || g.deck === def.deck) && g.canApply(s, def),
   );
+}
+
+/** Genes an Unstable mutation can land: good ones and defects, both filtered to fit the card. */
+export function mutationsFor(card: CardInstance): { good: Gene[]; bad: Gene[] } {
+  const def = cardDef(card);
+  const s = cardStats(card);
+  const fits = (g: Gene) => (g.deck === 'any' || g.deck === def.deck) && g.canApply(s, def);
+  const all = Object.values(GENES).filter(fits);
+  return { good: all.filter((g) => !g.defect), bad: all.filter((g) => g.defect) };
+}
+
+/** Total of a card's Imprints, for display: e.g. { damage: 6, block: 0, tag: 1 }. */
+export function imprintTotal(card: CardInstance): number {
+  const im = card.imprint;
+  if (!im) return 0;
+  return Math.abs(im.damage ?? 0) + Math.abs(im.block ?? 0) + Math.abs(im.tag ?? 0);
+}
+
+/** Add to one Imprint stat on a card (no cap, can go negative). */
+export function addImprint(card: CardInstance, stat: ImprintStat, n: number) {
+  card.imprint = { ...card.imprint, [stat]: (card.imprint?.[stat] ?? 0) + n };
+  card.mem = { ...card.mem, imprints: (card.mem?.imprints ?? 0) + 1 };
 }
 
 export function splice(card: CardInstance, geneId: string): CardInstance {
@@ -280,16 +416,22 @@ const ACTION_TEXT: Record<string, string> = {
   pry: 'Open a locker.',
   stim: '',
   flare: 'Light 2 ahead.',
+  notes: 'Reveal and light 3 ahead.',
+};
+
+const KEYWORD_TEXT: Record<string, string> = {
+  hold: 'Hold.', sibling: 'Sibling.', unstable: 'Unstable.', consume: '',
 };
 
 /**
  * Card rules text, generated from its current stats. Pass `statsOverride`
  * to describe a temporarily-buffed version (e.g. mid-fight, after Empower).
  */
-export function cardText(card: CardInstance, statsOverride?: CardStats): string[] {
+export function cardText(card: CardInstance, statsOverride?: CardStats, brief = false): string[] {
   const def = cardDef(card);
   const s = statsOverride ?? cardStats(card);
   const lines: string[] = [];
+  for (const k of def.keywords ?? []) if (KEYWORD_TEXT[k]) lines.push(KEYWORD_TEXT[k]);
   if (def.action && ACTION_TEXT[def.action]) lines.push(ACTION_TEXT[def.action]);
   if (s.damage > 0) {
     const hits = s.hits > 1 ? ` ×${s.hits}` : '';
@@ -308,6 +450,9 @@ export function cardText(card: CardInstance, statsOverride?: CardStats): string[
   if (s.biomass > 0) lines.push(`+${s.biomass} biomass.`);
   if (s.empower > 0) lines.push(`On hit, choose a card in hand: +${s.empower} damage, this fight.`);
   if (s.drain > 0) lines.push(s.drain >= 100 ? 'Gain biomass equal to damage dealt.' : `Gain biomass equal to ${s.drain}% of damage dealt.`);
+  if (brief && def.brief) lines.push(def.brief);
+  else lines.push(...(def.rules ?? []));
+  if (def.id === 'donor') lines.push(`Doses left: ${3 - (card.mem?.doses ?? 0)}.`);
   return lines;
 }
 

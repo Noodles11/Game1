@@ -154,6 +154,83 @@ const PLATES: Record<string, Plate> = {
     emblem: line('M50 20 L40 54 M50 20 L60 54 M44 40 L56 40') + `<circle cx="50" cy="18" r="4" fill="${RED}" stroke="${INK}" stroke-width="2"/>` +
       `<path d="M38 12 q-5 6 0 12 M62 12 q5 6 0 12 M32 8 q-8 10 0 20 M68 8 q8 10 0 20" fill="none" stroke="${INK}" stroke-width="1.8"/>`,
   },
+  needle: {
+    color: RED, sun: [66, 20],
+    emblem: line('M18 54 L52 22') + P('M50 18 L66 8 L70 12 L56 26 Z') + P('M60 12 L64 8 L72 16 L68 20 Z') +
+      P('M30 46 Q34 52 30 56 Q26 52 30 46 Z', `fill="${RED}" stroke="${INK}" stroke-width="1.2"`),
+  },
+  unscarred: {
+    color: MUSTARD, sun: [50, 24],
+    emblem: P('M47 56 L50 8 L53 56 Z') + P('M40 50 L60 50 L60 54 L40 54 Z') + hi('M50 12 L50 48') +
+      `<path d="M68 14 L68 24 M63 19 L73 19 M30 26 L30 32 M27 29 L33 29" stroke="${INK}" stroke-width="2"/>`,
+  },
+  scartissue: {
+    color: RED, sun: [50, 26],
+    emblem: `<path d="M18 40 Q34 22 50 34 T82 26" fill="none" stroke="${RED}" stroke-width="5"/>` +
+      [24, 34, 44, 54, 64, 74].map((x, i) => line(`M${x} ${i % 2 ? 22 : 26} L${x + 4} ${i % 2 ? 40 : 44}`)).join(''),
+  },
+  feeding: {
+    color: RED, sun: [36, 22],
+    emblem: P('M20 52 L66 14 L72 18 L64 26 L60 24 L58 30 L54 28 L52 34 L48 32 L46 38 L42 36 L28 56 Z') +
+      P('M72 38 Q78 46 72 52 Q66 46 72 38 Z', `fill="${RED}" stroke="${INK}" stroke-width="1.5"`),
+  },
+  callus: {
+    color: TEAL, sun: [64, 20],
+    emblem: [0, 1, 2].map((i) => `<rect x="${26 + i * 6}" y="${18 + i * 8}" width="40" height="12" rx="3" fill="${i === 2 ? INK : PAPER}" stroke="${INK}" stroke-width="2.5"/>`).join(''),
+  },
+  donor: {
+    color: GREEN, sun: [60, 22],
+    emblem: P('M34 10 L62 10 Q66 10 66 16 L66 40 Q66 46 60 46 L36 46 Q30 46 30 40 L30 16 Q30 10 34 10 Z') +
+      `<rect x="34" y="24" width="28" height="18" fill="${RED}"/>` + line('M48 46 L48 52 Q48 58 60 58 L78 58') +
+      `<path d="M38 18 L58 18" stroke="${PAPER}" stroke-width="1.5"/>`,
+  },
+  sibling: {
+    color: VIOLET, sun: [50, 20],
+    emblem: [34, 62].map((x) => `<circle cx="${x}" cy="22" r="7" fill="${INK}"/>` + P(`M${x - 10} 56 Q${x - 10} 32 ${x} 32 Q${x + 10} 32 ${x + 10} 56 Z`)).join('') +
+      `<path d="M44 40 L52 40" stroke="${INK}" stroke-width="2" stroke-dasharray="2 2"/>`,
+  },
+  cannibal: {
+    color: RED, sun: [30, 22],
+    emblem: `<rect x="52" y="14" width="26" height="36" fill="${PAPER}" stroke="${INK}" stroke-width="2.5"/>` +
+      P('M52 20 Q60 26 52 32 Q60 38 52 44 L40 44 L40 20 Z') +
+      P('M14 22 Q30 14 44 24 L38 30 L32 26 L26 32 L20 26 Z M14 48 Q30 56 44 42 L38 38 L32 44 L26 38 L20 44 Z'),
+  },
+  flask: {
+    color: GREEN, sun: [64, 18],
+    emblem: P('M42 8 L56 8 L56 24 L70 52 Q72 58 64 58 L34 58 Q26 58 28 52 L42 24 Z') +
+      P('M35 44 L63 44 L68 54 L30 54 Z', `fill="${GREEN}"`) +
+      [[44, 36, 2.5], [54, 30, 2], [50, 20, 1.5]].map(([x, y, r]) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${PAPER}"/>`).join(''),
+  },
+  hunger: {
+    color: MUSTARD, sun: [50, 30],
+    emblem: `<circle cx="50" cy="32" r="18" fill="${PAPER}" stroke="${INK}" stroke-width="3"/>` +
+      Array.from({ length: 12 }, (_, i) => {
+        const a = (i / 12) * Math.PI * 2;
+        return P(`M${(50 + Math.cos(a) * 18).toFixed(1)} ${(32 + Math.sin(a) * 18).toFixed(1)} L${(50 + Math.cos(a + 0.26) * 12).toFixed(1)} ${(32 + Math.sin(a + 0.26) * 12).toFixed(1)} L${(50 + Math.cos(a + 0.52) * 18).toFixed(1)} ${(32 + Math.sin(a + 0.52) * 18).toFixed(1)} Z`);
+      }).join('') + line('M50 32 L50 20 M50 32 L58 36'),
+  },
+  grief: {
+    color: VIOLET, sun: [50, 26],
+    emblem: `<circle cx="50" cy="32" r="14" fill="${INK}"/>` +
+      Array.from({ length: 8 }, (_, i) => {
+        const a = (i / 8) * Math.PI * 2;
+        const x = 50 + Math.cos(a) * 17;
+        const y = 32 + Math.sin(a) * 17;
+        return `<rect x="${(x - 3).toFixed(1)}" y="${(y - 3).toFixed(1)}" width="6" height="6" fill="${INK}" transform="rotate(${(a * 180) / Math.PI} ${x.toFixed(1)} ${y.toFixed(1)})"/>`;
+      }).join('') + P('M50 24 Q56 32 50 38 Q44 32 50 24 Z', `fill="${PAPER}"`),
+  },
+  echoscar: {
+    color: COBALT, sun: [50, 30],
+    emblem: [10, 17, 24].map((r) => `<path d="M${50 - r} 32 A${r} ${r} 0 0 1 ${50 + r} 32" fill="none" stroke="${INK}" stroke-width="2.5"/>`).join('') +
+      `<path d="M30 50 L70 14" stroke="${RED}" stroke-width="4"/>` + hi('M34 46 L66 18'),
+  },
+  notes: {
+    color: MUSTARD, sun: [70, 18],
+    emblem: P('M20 18 L48 22 L48 56 L20 52 Z', `fill="${PAPER}" stroke="${INK}" stroke-width="2.5"`) +
+      P('M48 22 L76 18 L76 52 L48 56 Z', `fill="${PAPER}" stroke="${INK}" stroke-width="2.5"`) +
+      [30, 36, 42].map((y) => line(`M25 ${y - 4} L43 ${y - 2}`).replace('stroke-width="3"', 'stroke-width="1.5"')).join('') +
+      P('M58 44 L80 10 L84 12 L62 46 L57 49 Z'),
+  },
 };
 
 const FALLBACK: Plate = { color: MUSTARD, sun: [50, 26], emblem: `<circle cx="50" cy="30" r="10" fill="${INK}"/>` };

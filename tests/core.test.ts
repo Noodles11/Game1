@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardName, cardStats, cardText, genesFor, splice, spliceCost } from '../src/core/cards';
+import { GENES, cardName, cardStats, cardText, genesFor, splice, spliceCost } from '../src/core/cards';
 import { FORCE_COST, Game, MAX_ENERGY, freshMeta } from '../src/core/game';
 import type { CardInstance, Segment } from '../src/core/types';
 import { MAP_ROWS, WORLDS, generateMap } from '../src/core/worlds';
@@ -396,6 +396,12 @@ function autoplay(g: Game, guardMax = 3000): string {
               const target = g.combat.hand[0];
               if (target) g.empowerTarget(target.uid); else g.skipEmpower();
             }
+            if (g.combat?.pendingPick) {
+              // feed the strongest attack; eat the weakest card
+              const byDmg = [...g.combat.hand].sort((a, b) => cardStats(b).damage - cardStats(a).damage);
+              const pick = g.combat.pendingPick.kind === 'cannibal' ? byDmg[byDmg.length - 1] : byDmg[0];
+              if (pick) g.pickCard(pick.uid); else g.skipPick();
+            }
           }
         }
         if (g.phase === 'combat') g.endTurn();
@@ -762,5 +768,172 @@ describe('enemy plating', () => {
     expect(hit(6)).toBe(2);
     expect(e.block).toBe(4);
     expect(e.hp).toBe(hp - 2);
+  });
+});
+
+describe('imprint cards', () => {
+  type Priv = { damagePlayer(n: number): void; imprint(c: CardInstance, s: 'damage' | 'block' | 'tag', n: number): void };
+  const priv = (g: Game) => g as unknown as Priv;
+  /** A fight against one tough dummy, with the given cards in hand. */
+  function setup(hand: string[], enemy = 'crawler', world: string | null = null) {
+    const g = new Game(5);
+    const cards: CardInstance[] = hand.map((id, i) => ({ uid: 9000 + i, defId: id, genes: [] }));
+    g.combatDeck.push(...cards);
+    fightIn(g, [enemy], world);
+    const c = g.combat!;
+    c.hand = [...cards];
+    c.energy = 9;
+    return { g, c, cards, foe: c.enemies[0] };
+  }
+
+  it('Feeding Blade imprints +2 damage per kill, and it sticks to the deck card', () => {
+    const { g, cards, foe } = setup(['feeding']);
+    foe.hp = 1;
+    g.playCombat(cards[0].uid, foe.uid);
+    expect(cards[0].imprint?.damage).toBe(2);
+    expect(cardStats(g.combatDeck.find((c) => c.uid === cards[0].uid)!).damage).toBe(7);
+  });
+
+  it('Hunger Clock: +3 on a kill, −2 after a fight won without it', () => {
+    const { g, cards, foe } = setup(['hunger', 'scalpel']);
+    foe.hp = 1;
+    g.playCombat(cards[1].uid, foe.uid);
+    expect(g.phase).toBe('harvest');
+    expect(cards[0].imprint?.damage).toBe(-2);
+    const b = setup(['hunger']);
+    b.foe.hp = 1;
+    b.g.playCombat(b.cards[0].uid, b.foe.uid);
+    expect(b.cards[0].imprint?.damage).toBe(3);
+  });
+
+  it('Harvest Needle heals per tagged enemy, and every 6 drawn imprints Tag +1', () => {
+    const { g, c, cards, foe } = setup(['needle']);
+    foe.hp = 999;
+    foe.status.tagged = 1;
+    g.hp = 10;
+    cards[0].mem = { drawn: 5 };
+    g.playCombat(cards[0].uid, foe.uid);
+    expect(g.hp).toBe(11);
+    expect(cards[0].imprint?.tag).toBe(1);
+    expect(cards[0].mem?.drawn).toBe(0);
+    void c;
+  });
+
+  it('Unscarred Edge is held, sharpens on clean rounds, and a hit wipes it', () => {
+    const { g, c, cards } = setup(['unscarred'], 'geode');
+    g.endTurn();
+    expect(c.hand.some((h) => h.uid === cards[0].uid)).toBe(true);
+    expect(g.combatBonus(cards[0])).toBe(2);
+    priv(g).damagePlayer(5);
+    expect(g.combatBonus(cards[0])).toBe(0);
+    cards[0].mem = { clean: 2 };
+    c.hurtRound = false;
+    g.endTurn();
+    expect(cards[0].imprint?.damage).toBe(1);
+  });
+
+  it('Scar Tissue: losing integrity while held imprints another tactic', () => {
+    const { g, cards } = setup(['scartissue']);
+    const before = g.combatDeck.filter((c) => c.uid !== cards[0].uid).reduce((n, c) => n + (c.mem?.imprints ?? 0), 0);
+    priv(g).damagePlayer(6);
+    const after = g.combatDeck.filter((c) => c.uid !== cards[0].uid).reduce((n, c) => n + (c.mem?.imprints ?? 0), 0);
+    expect(after).toBe(before + 1);
+  });
+
+  it('Callus grows +1 plating for each hit it fully stops', () => {
+    const { g, cards, foe } = setup(['callus']);
+    g.playCombat(cards[0].uid, foe.uid);
+    priv(g).damagePlayer(3);
+    priv(g).damagePlayer(3);
+    priv(g).damagePlayer(9);
+    expect(cards[0].imprint?.block).toBe(2);
+  });
+
+  it('Donor Cell imprints +2 on the chosen card and is Consumed after 3 doses', () => {
+    const { g, c, cards } = setup(['donor', 'scalpel']);
+    cards[0].mem = { doses: 2 };
+    g.playCombat(cards[0].uid);
+    expect(c.pendingPick?.kind).toBe('donor');
+    expect(g.pickCard(cards[1].uid)).toBe(true);
+    expect(cardStats(cards[1]).damage).toBe(8);
+    expect(g.combatDeck.some((d) => d.uid === cards[0].uid)).toBe(false);
+  });
+
+  it('Siblings share every Imprint, and a new copy arrives already grown', () => {
+    const { g, cards } = setup(['sibling', 'sibling']);
+    priv(g).imprint(cards[0], 'damage', 3);
+    expect(cards[1].imprint?.damage).toBe(3);
+    g.phase = 'loot';
+    g.offers = [{ defId: 'sibling', deck: 'combat' }];
+    g.takeOffer(0);
+    expect(g.combatDeck[g.combatDeck.length - 1].imprint?.damage).toBe(3);
+  });
+
+  it('Cannibal Print consumes a card in hand and takes its damage and plating', () => {
+    const { g, cards, foe } = setup(['cannibal', 'hook'], 'crawler');
+    foe.hp = 999;
+    g.playCombat(cards[0].uid, foe.uid);
+    expect(g.pickCard(cards[1].uid)).toBe(true);
+    expect(g.combatDeck.some((d) => d.uid === cards[1].uid)).toBe(false);
+    expect(cards[0].imprint).toEqual({ damage: 5, block: 2 });
+  });
+
+  it('Mutagen Flask splices a gene, sometimes a defect, and is Consumed', () => {
+    let defects = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      const g = new Game(seed);
+      const flask: CardInstance = { uid: 9100, defId: 'flask', genes: [] };
+      const scal: CardInstance = { uid: 9101, defId: 'scalpel', genes: [] };
+      g.combatDeck.push(flask, scal);
+      fightIn(g, ['crawler'], null);
+      g.combat!.hand = [flask, scal];
+      g.combat!.energy = 3;
+      g.playCombat(flask.uid);
+      g.pickCard(scal.uid);
+      expect(scal.genes.length).toBe(1);
+      expect(g.combatDeck.some((d) => d.uid === 9100)).toBe(false);
+      if (GENES[scal.genes[0]].defect) defects++;
+    }
+    expect(defects).toBeGreaterThan(2);
+    expect(defects).toBeLessThan(20);
+  });
+
+  it('Grief Engine grows +1 plating each time a card is Consumed', () => {
+    const { g, cards, foe } = setup(['cannibal', 'scalpel', 'grief']);
+    foe.hp = 999;
+    g.playCombat(cards[0].uid, foe.uid);
+    g.pickCard(cards[1].uid);
+    expect(cards[2].imprint?.block).toBe(1);
+  });
+
+  it('Echo Scar: when Resonance doubles it, it and every Resonant Strike grow', () => {
+    const { g, c, cards, foe } = setup(['echoscar', 'resonant'], 'crawler', 'kessra');
+    foe.hp = 999;
+    c.playedThisTurn = 2;
+    g.playCombat(cards[0].uid, foe.uid);
+    expect(cards[0].imprint?.damage).toBe(1);
+    expect(cards[1].imprint?.damage).toBe(1);
+  });
+
+  it('Field Notes: each hidden node revealed imprints +1 damage on a tactic', () => {
+    const g = new Game(3);
+    g.phase = 'mainframe';
+    g.chooseWorld('kessra');
+    for (const n of g.map!.nodes) if (n.row === 1) n.hidden = true;
+    const hidden = g.map!.nodes.filter((n) => n.row === 1).length;
+    const notes = { uid: 9200, defId: 'notes', genes: [] as string[] };
+    g.surveyDeck.push(notes);
+    g.sHand = [notes];
+    expect(g.playSurvey(notes.uid)).toBe(true);
+    const total = g.combatDeck.reduce((n, c) => n + (c.imprint?.damage ?? 0), 0);
+    expect(total).toBe(hidden);
+  });
+
+  it('Imprints made after loading a save land on the deck card', () => {
+    const { g, cards, foe } = setup(['feeding']);
+    foe.hp = 1;
+    const r = Game.load(g.serialize())!;
+    r.playCombat(cards[0].uid, r.combat!.enemies[0].uid);
+    expect(r.combatDeck.find((d) => d.uid === cards[0].uid)!.imprint?.damage).toBe(2);
   });
 });

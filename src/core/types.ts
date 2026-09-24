@@ -1,6 +1,17 @@
 export type DeckKind = 'combat' | 'survey';
 
-export type SurveyAction = 'override' | 'cut' | 'scan' | 'pry' | 'stim' | 'flare';
+export type SurveyAction = 'override' | 'cut' | 'scan' | 'pry' | 'stim' | 'flare' | 'notes';
+
+/**
+ * hold: stays in hand at end of turn (takes a draw slot).
+ * sibling: every Imprint on one copy lands on all copies.
+ * unstable: its result can be a defect.
+ * consume: removes a card from the deck for the rest of the run.
+ */
+export type Keyword = 'hold' | 'sibling' | 'unstable' | 'consume';
+
+/** Stats an Imprint can change. */
+export type ImprintStat = 'damage' | 'block' | 'tag';
 
 /** Every number a card can carry. Genes modify these; the text is generated from them. */
 export interface CardStats {
@@ -38,12 +49,21 @@ export interface CardDef {
   action?: SurveyAction;
   flavor: string;
   glyph: string;
+  keywords?: Keyword[];
+  /** Rules text for effects the stat lines cannot express. */
+  rules?: string[];
+  /** Short form of the rules, for small cards in hand. */
+  brief?: string;
 }
 
 export interface CardInstance {
   uid: number;
   defId: string;
   genes: string[];
+  /** Imprints: permanent, uncapped stat changes earned in play. */
+  imprint?: Partial<Record<ImprintStat, number>>;
+  /** Per-card counters that drive Imprints (clean turns, health drawn, doses used, imprint count). */
+  mem?: Record<string, number>;
 }
 
 export interface Statuses {
