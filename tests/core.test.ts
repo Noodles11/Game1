@@ -1207,3 +1207,60 @@ describe('card effects resolve before a fight ends', () => {
     expect(g.phase).toBe('harvest');
   });
 });
+
+describe('medic consumption and triage', () => {
+  it('a medic tactic is consumed on use: gone from the deck for the run', () => {
+    const g = new Game(5);
+    const p: CardInstance = { uid: 9600, defId: 'poultice', genes: [] };
+    g.combatDeck.push(p);
+    fightIn(g, ['crawler'], null);
+    g.combat!.hand = [p];
+    g.hp = 10;
+    g.biomass = 4;
+    g.playCombat(p.uid);
+    expect(g.combatDeck.some((c) => c.uid === p.uid)).toBe(false);
+    expect(g.combat!.discard.some((c) => c.uid === p.uid)).toBe(false);
+  });
+
+  it('a medic survey card is consumed on use', () => {
+    const g = new Game(5);
+    const d: CardInstance = { uid: 9601, defId: 'dressing', genes: [] };
+    g.surveyDeck.push(d);
+    g.sHand = [d];
+    g.hp = 10;
+    g.playSurvey(d.uid);
+    expect(g.hp).toBe(12);
+    expect(g.surveyDeck.some((c) => c.uid === d.uid)).toBe(false);
+    expect(g.sDiscard.some((c) => c.uid === d.uid)).toBe(false);
+  });
+
+  it('Triage Tag: a tagged enemy dying prints a fleeting Clot Patch into the hand', () => {
+    const g = new Game(5);
+    const t: CardInstance = { uid: 9602, defId: 'triage', genes: [] };
+    const sc: CardInstance = { uid: 9603, defId: 'scalpel', genes: [] };
+    g.combatDeck.push(t, sc);
+    fightIn(g, ['tick', 'crawler'], null);
+    const c = g.combat!;
+    c.hand = [t, sc];
+    c.energy = 3;
+    const [tick] = g.livingEnemies();
+    tick.hp = 20;
+    g.playCombat(t.uid, tick.uid);
+    expect(tick.status.tagged).toBe(1);
+    tick.hp = 1;
+    g.playCombat(sc.uid, tick.uid);
+    const patch = c.hand.find((h) => h.defId === 'clot');
+    expect(patch?.temp).toBe(true);
+    expect(g.combatDeck.some((d) => d.uid === patch!.uid)).toBe(false);
+    g.hp = 10;
+    g.playCombat(patch!.uid);
+    expect(g.hp).toBe(12);
+    expect(c.hand.some((h) => h.uid === patch!.uid)).toBe(false);
+  });
+
+  it('the Triage gene turns a tagging card into a patch printer', () => {
+    const h: CardInstance = { uid: 1, defId: 'harpoon', genes: [] };
+    expect(genesFor(h).some((x) => x.id === 'triagegene')).toBe(true);
+    expect(cardStats(splice(h, 'triagegene')).triage).toBe(1);
+  });
+});

@@ -41,6 +41,8 @@ export interface CardStats {
   swarm: number;
   /** Biomass paid each time the card is played. */
   bioCost: number;
+  /** This fight: each tagged enemy that dies prints this many Clot Patches into your hand. */
+  triage: number;
 }
 
 export interface CardDef {
@@ -64,6 +66,8 @@ export interface CardInstance {
   genes: string[];
   /** Imprints: permanent, uncapped stat changes earned in play. */
   imprint?: Partial<Record<ImprintStat, number>>;
+  /** Printed mid-fight: never part of the deck, gone when the fight ends. */
+  temp?: boolean;
   /** Per-card counters that drive Imprints (clean turns, health drawn, doses used, imprint count). */
   mem?: Record<string, number>;
 }

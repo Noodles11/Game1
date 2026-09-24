@@ -273,6 +273,11 @@ const PLATES: Record<string, Plate> = {
       line('M30 40 L26 56') + P('M62 28 L78 30 L78 32 L62 32 Z', `fill="${RED}" stroke="${INK}" stroke-width="1"`) +
       `<path d="M80 26 q4 5 0 10" fill="none" stroke="${INK}" stroke-width="1.5"/>`,
   },
+  triage: {
+    color: RED, sun: [62, 22],
+    emblem: `<circle cx="42" cy="32" r="15" fill="none" stroke="${INK}" stroke-width="3"/>` + line('M42 12 L42 52 M22 32 L62 32') +
+      P('M66 38 L72 38 L72 44 L78 44 L78 50 L72 50 L72 56 L66 56 L66 50 L60 50 L60 44 L66 44 Z', `fill="${GREEN}" stroke="${INK}" stroke-width="1.5"`),
+  },
 };
 
 const FALLBACK: Plate = { color: MUSTARD, sun: [50, 26], emblem: `<circle cx="50" cy="30" r="10" fill="${INK}"/>` };

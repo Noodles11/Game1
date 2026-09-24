@@ -62,6 +62,7 @@ const HINTS: Record<string, string> = {
   hold: 'Hold — stays in your hand at the end of your turn. It takes one of your draw slots.',
   sibling: 'Sibling — printed from one line. Every Imprint one copy gets, all copies get, and new copies arrive already grown.',
   unstable: 'Unstable — the result is random, and one time in three it is a defect.',
+  fleeting: 'Fleeting — printed during this fight. It is not part of your deck and is gone when the fight ends.',
   consume: 'Consume — removes a card from your deck for the rest of the run. Grief Engines remember every one.',
   imprint: 'Imprint — a permanent change this card earned in play. No limit. It stays for the whole run.',
   defect: 'Defect — a bad mutation from an Unstable effect. It stays, like any gene.',
@@ -428,6 +429,10 @@ export class App {
         this.float(`IMPRINT ${e.label}`, e.amount < 0 ? 'hurt' : 'res', 50, 26);
         break;
       case 'consumed': this.float('CONSUMED', 'hurt', 50, 30); break;
+      case 'printed':
+        this.printStart.set(e.uid, performance.now());
+        this.float('+ CLOT PATCH', 'good', 50, 38);
+        break;
       case 'whisper': this.say(e.text); break;
       case 'line': {
         const x = this.slotOf(e.uid);
@@ -638,6 +643,7 @@ export class App {
       'card', def.deck, lvl > 0 ? 'evolved' : '', buffed ? 'buffed' : '', opts.big ? 'big' : '',
       this.selected === card.uid ? 'selected' : '', opts.dim ? 'dim' : '',
       opts.print !== undefined ? 'printing' : '', card.mem?.imprints ? 'imprinted' : '', isMedic(def.id) ? 'medic' : '',
+      card.temp ? 'temp' : '',
     ].filter(Boolean).join(' ');
     // a card re-rendered mid-print carries on where it was (negative delay)
     const style = opts.print !== undefined ? `style="--pd:${Math.round(-opts.print)}ms"` : '';
@@ -654,7 +660,8 @@ export class App {
     const imprint = marks || imprintTotal(card) || defects
       ? `<span class="imprint" data-hint="${defects ? 'defect' : 'imprint'}">${opts.big ? `${'|'.repeat(Math.min(marks, 8))}${marks > 8 ? `×${marks}` : ''} ` : '⟐'}${impParts.join(' ') || (defects ? 'DEFECT' : '')}</span>`
       : '';
-    const kws = (def.keywords ?? []).map((k) => `<i class="kw" data-hint="${k}">${k}</i>`).join('');
+    const kws = [...(def.keywords ?? []), ...(card.temp ? ['fleeting'] : [])]
+      .map((k) => `<i class="kw" data-hint="${k}">${k}</i>`).join('');
     return `
       <button class="${cls}" data-act="${opts.act ?? 'card'}" data-uid="${card.uid}" data-hint="card" ${style} ${opts.extra ?? ''}>
         ${cardArt(def.id)}

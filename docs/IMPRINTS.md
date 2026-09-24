@@ -66,5 +66,11 @@ They evolve like any card; two genes fit them best: **Clotting** (+2 heal, any d
 | Field Dressing | survey | Heal 2. |
 | Flesh Knitter | survey | Heal 6. Costs 3 biomass. |
 
+Medic cards are **Consumed** on use: gone from the deck for the rest of the run (Grief Engines notice).
 Can't be played without the biomass, or (heal-only cards) at full integrity.
+
+**Triage** — a way to make heals mid-fight. After a Triage card is played, each *tagged* enemy that dies
+this fight prints a **fleeting** Clot Patch into your hand (dashed frame; never joins the deck, gone when the fight ends).
+Sources: **Triage Tag** (1: Deal 3, Tag 1, Triage 1) and the **Triage** gene (+1 Triage, fits any card that tags).
+Stacks: two Triage plays print two patches per tagged death.
 Clot Patch, Poultice and Field Dressing are listed twice in reward pools, so they turn up often; offers never repeat a card.

@@ -2366,3 +2366,9 @@ body {
   right: 4px;
   transform: none;
 }
+
+/* printed mid-fight: a dashed frame, gone when the fight ends */
+.card.temp {
+  border-style: dashed;
+  opacity: 0.95;
+}

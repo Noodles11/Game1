@@ -1,6 +1,6 @@
 import {
   REWARD_COMBAT, REWARD_SURVEY, SECRET_CARDS, STARTER_COMBAT, STARTER_SURVEY,
-  CARDS, addImprint, cardDef, cardStats, genesFor, mutationsFor, needsTarget, splice, spliceCost,
+  CARDS, addImprint, cardDef, isMedic, cardStats, genesFor, mutationsFor, needsTarget, splice, spliceCost,
 } from './cards';
 import { ENEMIES } from './enemies';
 import { Rng } from './rng';
@@ -41,7 +41,8 @@ export type GameEvent =
   | { type: 'summon'; uid: number }
   | { type: 'reflect'; amount: number }
   | { type: 'imprint'; uid: number; stat: ImprintStat | 'gene'; amount: number; label: string }
-  | { type: 'consumed'; uid: number; defId: string };
+  | { type: 'consumed'; uid: number; defId: string }
+  | { type: 'printed'; uid: number; defId: string };
 
 /** A card waiting for the player to choose another card in hand. */
 export interface PendingPick {
@@ -76,6 +77,8 @@ export interface CombatState {
   /** Every card uid played this fight. */
   played: number[];
   pendingPick: PendingPick | null;
+  /** Clot Patches printed per tagged death, this fight (Triage). */
+  triage?: number;
   /** Every enemy is dead, but a card's effect still waits on the player. The fight ends once it resolves. */
   victoryPending?: boolean;
 }
@@ -439,7 +442,10 @@ export class Game {
     this.oxygen -= s.cost;
     this.payBiomass(s.bioCost);
     this.sHand = this.sHand.filter((c) => c !== card);
-    this.sDiscard.push(card);
+    if (isMedic(def.id)) {
+      this.surveyDeck = this.surveyDeck.filter((c) => c !== card);
+      this.emit({ type: 'consumed', uid: card.uid, defId: card.defId });
+    } else this.sDiscard.push(card);
     this.message = '';
 
     if (this.phase === 'map') {
@@ -1158,6 +1164,8 @@ export class Game {
       if (this.isDead || this.livingEnemies().length === 0) break;
     }
     if (this.isDead) return true;
+    // medic cards are used up
+    if (isMedic(card.defId)) this.consumeCard(card);
     if (resolved === 2 && card.defId === 'echoscar') {
       this.imprint(card, 'damage', 1);
       for (const o of this.combatDeck) if (o.defId === 'resonant') this.imprint(o, 'damage', 1);
@@ -1229,6 +1237,7 @@ export class Game {
     }
     const kills = aliveBefore.filter((t) => !t.alive).length;
     this.afterResolve(card, s, kills, targetTagged ? taggedBefore : 0);
+    if (s.triage > 0) c.triage = (c.triage ?? 0) + s.triage;
     c.energy += s.energy;
     if (s.heal > 0) this.healPlayer(s.heal);
     if (s.draw > 0) this.drawCombat(s.draw);
@@ -1273,6 +1282,18 @@ export class Game {
       }
       default:
         break;
+    }
+  }
+
+  /** Triage: a tagged death prints Clot Patches straight into the hand. They vanish when the fight ends. */
+  private printPatches() {
+    const c = this.combat;
+    const n = c?.triage ?? 0;
+    if (!c || n <= 0) return;
+    for (let i = 0; i < n && c.hand.length < 10; i++) {
+      const patch: CardInstance = { uid: this.nextUid++, defId: 'clot', genes: [], temp: true };
+      c.hand.push(patch);
+      this.emit({ type: 'printed', uid: patch.uid, defId: 'clot' });
     }
   }
 
@@ -1383,6 +1404,7 @@ export class Game {
       e.alive = false;
       this.corpses.push({ uid: e.uid, defId: e.defId, biomass: def.biomass, tagged: e.status.tagged > 0, taken: false });
       this.emit({ type: 'enemyDie', uid: e.uid });
+      if (e.status.tagged > 0) this.printPatches();
       if (def.splits && !e.split) {
         const half = Math.max(1, Math.floor(e.maxHp / 2));
         this.spawnEnemy(e.defId, half, true);
