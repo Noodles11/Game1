@@ -39,6 +39,8 @@ export interface CardStats {
   retain: boolean;
   /** Extra hits while 2+ enemies are alive. */
   swarm: number;
+  /** Biomass paid each time the card is played. */
+  bioCost: number;
 }
 
 export interface CardDef {

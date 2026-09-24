@@ -52,3 +52,19 @@ Largest single Imprint seen: +38 damage.
 Anything that reads or copies a card's numbers (Cannibal, Donor's damage-or-plating choice, Scar Tissue,
 Field Notes, Mutagen Flask's gene fit) takes exactly what is printed on it at that moment:
 base + genes + Imprints + this fight's bonuses (Empower, Unscarred Edge).
+
+## Medic cards (free heals)
+
+Common, energy/oxygen-free heals with a green frame, red cross and a blood-drop price tag when they cost biomass.
+They evolve like any card; two genes fit them best: **Clotting** (+2 heal, any deck) and **Frugal** (−1 biomass price).
+
+| Card | Deck | Effect |
+|---|---|---|
+| Clot Patch | tactic | Heal 2. |
+| Biomass Poultice | tactic | Heal 4. Costs 2 biomass. |
+| Marrow Knit | tactic | Heal 7. Costs 4 biomass. |
+| Field Dressing | survey | Heal 2. |
+| Flesh Knitter | survey | Heal 6. Costs 3 biomass. |
+
+Can't be played without the biomass, or (heal-only cards) at full integrity.
+Clot Patch, Poultice and Field Dressing are listed twice in reward pools, so they turn up often; offers never repeat a card.

@@ -401,6 +401,8 @@ export class Game {
   surveyPlayable(card: CardInstance): string | null {
     const s = cardStats(card);
     const def = cardDef(card);
+    if (s.bioCost > this.biomass) return 'Not enough biomass.';
+    if (!def.action && s.heal > 0 && !s.draw && !s.biomass && this.hp >= this.maxHp) return 'Integrity already full.';
     if (this.phase === 'map') {
       if (s.cost > this.oxygen) return 'Not enough oxygen.';
       switch (def.action) {
@@ -433,6 +435,7 @@ export class Game {
     const s = cardStats(card);
     const def = cardDef(card);
     this.oxygen -= s.cost;
+    this.payBiomass(s.bioCost);
     this.sHand = this.sHand.filter((c) => c !== card);
     this.sDiscard.push(card);
     this.message = '';
@@ -526,8 +529,18 @@ export class Game {
     return this.world ? [...REWARD_COMBAT, ...WORLDS[this.world].cards] : REWARD_COMBAT;
   }
 
+  /** Pick n different card ids. Pools list common cards more than once to weight them. */
+  private draft(pool: string[], n: number): string[] {
+    const out: string[] = [];
+    for (const id of this.rng.shuffle([...pool])) {
+      if (!out.includes(id)) out.push(id);
+      if (out.length === n) break;
+    }
+    return out;
+  }
+
   private openLoot() {
-    const combat = this.rng.sample(this.rewardPool(), 2).map((defId) => ({ defId, deck: 'combat' as const }));
+    const combat = this.draft(this.rewardPool(), 2).map((defId) => ({ defId, deck: 'combat' as const }));
     const survey = { defId: this.rng.pick(REWARD_SURVEY), deck: 'survey' as const };
     this.offers = [...combat, survey];
     this.gainBiomass(3);
@@ -1056,7 +1069,9 @@ export class Game {
 
   combatPlayable(card: CardInstance): string | null {
     if (this.phase !== 'combat' || !this.combat) return 'Not now.';
-    if (cardStats(card).cost > this.combat.energy) return 'Not enough energy.';
+    const s = this.displayStats(card);
+    if (s.cost > this.combat.energy) return 'Not enough energy.';
+    if (s.bioCost > this.biomass) return 'Not enough biomass.';
     if ((card.defId === 'donor' || card.defId === 'flask') && this.combat.hand.length < 2) return 'No other card in hand.';
     return null;
   }
@@ -1124,6 +1139,7 @@ export class Game {
     }
 
     c.energy -= s.cost;
+    this.payBiomass(s.bioCost);
     c.hand = c.hand.filter((h) => h !== card);
     c.discard.push(card);
 
@@ -1525,7 +1541,7 @@ export class Game {
       return;
     }
     const pool = seg?.elite && this.world ? WORLDS[this.world].cards : this.rewardPool();
-    this.offers = this.rng.sample(pool, 3).map((defId) => ({ defId, deck: 'combat' as const }));
+    this.offers = this.draft(pool, 3).map((defId) => ({ defId, deck: 'combat' as const }));
     if (seg?.elite) this.gainBiomass(ELITE_BIOMASS);
     this.phase = 'reward';
   }
@@ -1534,6 +1550,12 @@ export class Game {
     const before = this.hp;
     this.hp = Math.min(this.maxHp, this.hp + amount);
     if (this.hp > before) this.emit({ type: 'heal', amount: this.hp - before });
+  }
+
+  private payBiomass(amount: number) {
+    if (amount <= 0) return;
+    this.biomass -= amount;
+    this.emit({ type: 'biomass', amount: -amount });
   }
 
   private gainBiomass(amount: number) {

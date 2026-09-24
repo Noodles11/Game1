@@ -1,4 +1,4 @@
-import { GENES, cardDef, cardLevel, cardName, cardText, imprintTotal, needsTarget, splice, spliceCost } from '../core/cards';
+import { GENES, cardDef, cardLevel, cardName, cardText, imprintTotal, isMedic, needsTarget, splice, spliceCost } from '../core/cards';
 import { ENEMIES } from '../core/enemies';
 import { FORCE_COST, Game, RELIQUARY_PRICE, freshMeta, type GameEvent } from '../core/game';
 import type { CardInstance, DeckKind, EnemyState, MapNode, Meta } from '../core/types';
@@ -58,6 +58,7 @@ const HINTS: Record<string, string> = {
   splits: 'Splits — the first time it dies, it breaks into two copies at half health.',
   allies: 'Chorus — gives every other enemy strength. Kill it first.',
   summon: 'Shed — calls another enemy into the fight.',
+  biocost: 'Biomass price — paid every time you play this card. Not enough biomass, no play.',
   hold: 'Hold — stays in your hand at the end of your turn. It takes one of your draw slots.',
   sibling: 'Sibling — printed from one line. Every Imprint one copy gets, all copies get, and new copies arrive already grown.',
   unstable: 'Unstable — the result is random, and one time in three it is a defect.',
@@ -410,7 +411,7 @@ export class App {
         if (e.blocked > 0) this.float(`▢ ${e.blocked} blocked`, 'block', 50, 72);
         break;
       case 'heal': this.float(`+${e.amount} integrity`, 'good', 50, 55); break;
-      case 'biomass': this.float(`+${e.amount} biomass`, 'bio', 50, 45); break;
+      case 'biomass': this.float(`${e.amount > 0 ? '+' : '−'}${Math.abs(e.amount)} biomass`, 'bio', 50, 45); break;
       case 'block': this.float(`▢ +${e.amount}`, 'block', 50, 70); break;
       case 'splice': this.float('SPLICED', 'bio', 50, 30); break;
       case 'resonate': this.float('RESONANCE', 'res', 50, 34); break;
@@ -636,7 +637,7 @@ export class App {
     const cls = [
       'card', def.deck, lvl > 0 ? 'evolved' : '', buffed ? 'buffed' : '', opts.big ? 'big' : '',
       this.selected === card.uid ? 'selected' : '', opts.dim ? 'dim' : '',
-      opts.print !== undefined ? 'printing' : '', card.mem?.imprints ? 'imprinted' : '',
+      opts.print !== undefined ? 'printing' : '', card.mem?.imprints ? 'imprinted' : '', isMedic(def.id) ? 'medic' : '',
     ].filter(Boolean).join(' ');
     // a card re-rendered mid-print carries on where it was (negative delay)
     const style = opts.print !== undefined ? `style="--pd:${Math.round(-opts.print)}ms"` : '';
@@ -658,6 +659,7 @@ export class App {
       <button class="${cls}" data-act="${opts.act ?? 'card'}" data-uid="${card.uid}" data-hint="card" ${style} ${opts.extra ?? ''}>
         ${cardArt(def.id)}
         <span class="cost" data-hint="cost" aria-label="cost">${s.cost}</span>
+        ${s.bioCost > 0 ? `<span class="biocost" data-hint="biocost" aria-label="costs ${s.bioCost} biomass">${s.bioCost}</span>` : ''}
         ${kws ? `<span class="kws">${kws}</span>` : ''}
         <span class="name">${esc(cardName(card))}</span>
         <span class="text">${cardText(card, s, !opts.big).filter((l) => !['Hold.', 'Sibling.', 'Unstable.'].includes(l)).join(' ')}</span>

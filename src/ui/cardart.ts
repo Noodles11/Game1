@@ -246,6 +246,33 @@ const PLATES: Record<string, Plate> = {
     emblem: `<path d="M50 14 A18 18 0 1 0 68 32" fill="none" stroke="${INK}" stroke-width="4"/>` + P('M62 24 L74 30 L64 38 Z') +
       P('M46 24 L56 24 L52 32 L58 32 L44 48 L48 36 L42 36 Z', `fill="${MUSTARD}" stroke="${INK}" stroke-width="1.2"`),
   },
+  clot: {
+    color: GREEN, sun: [50, 28],
+    emblem: `<rect x="30" y="18" width="40" height="26" rx="6" fill="${PAPER}" stroke="${INK}" stroke-width="3"/>` +
+      `<rect x="42" y="18" width="16" height="26" fill="${GREEN}" stroke="${INK}" stroke-width="2"/>` +
+      [22, 28, 34, 40].map((y) => `<circle cx="50" cy="${y}" r="1.2" fill="${INK}"/>`).join(''),
+  },
+  poultice: {
+    color: GREEN, sun: [50, 26],
+    emblem: P('M28 40 Q28 18 50 16 Q72 18 72 40 Q72 54 50 54 Q28 54 28 40 Z', `fill="${RED}" stroke="${INK}" stroke-width="3"`) +
+      P('M46 26 L54 26 L54 32 L60 32 L60 40 L54 40 L54 46 L46 46 L46 40 L40 40 L40 32 L46 32 Z', `fill="${PAPER}" stroke="${INK}" stroke-width="1.5"`),
+  },
+  knit: {
+    color: GREEN, sun: [60, 22],
+    emblem: P('M22 26 Q16 20 22 16 Q28 14 30 20 L66 36 Q72 32 76 36 Q80 42 74 46 Q78 52 72 54 Q66 54 66 48 L30 32 Q26 38 20 34 Q16 30 22 26 Z') +
+      `<path d="M40 22 L36 34 M50 26 L46 38 M60 30 L56 42" stroke="${GREEN}" stroke-width="2.5"/>`,
+  },
+  dressing: {
+    color: GREEN, sun: [64, 20],
+    emblem: `<circle cx="44" cy="34" r="16" fill="${PAPER}" stroke="${INK}" stroke-width="3"/><circle cx="44" cy="34" r="6" fill="${INK}"/>` +
+      P('M58 40 L84 52 L80 58 L54 46 Z', `fill="${PAPER}" stroke="${INK}" stroke-width="2.5"`),
+  },
+  knitter: {
+    color: GREEN, sun: [70, 20],
+    emblem: P('M22 20 L56 20 L62 30 L56 40 L22 40 Z') + `<rect x="26" y="24" width="18" height="8" fill="${GREEN}"/>` +
+      line('M30 40 L26 56') + P('M62 28 L78 30 L78 32 L62 32 Z', `fill="${RED}" stroke="${INK}" stroke-width="1"`) +
+      `<path d="M80 26 q4 5 0 10" fill="none" stroke="${INK}" stroke-width="1.5"/>`,
+  },
 };
 
 const FALLBACK: Plate = { color: MUSTARD, sun: [50, 26], emblem: `<circle cx="50" cy="30" r="10" fill="${INK}"/>` };

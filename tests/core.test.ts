@@ -1111,3 +1111,47 @@ describe('germline genes', () => {
     expect(r.offers.length).toBe(2);
   });
 });
+
+describe('medic cards', () => {
+  it('Biomass Poultice: free, heals 4, costs 2 biomass', () => {
+    const g = new Game(5);
+    const p: CardInstance = { uid: 9400, defId: 'poultice', genes: [] };
+    g.combatDeck.push(p);
+    fightIn(g, ['crawler'], null);
+    g.combat!.hand = [p];
+    g.combat!.energy = 0;
+    g.hp = 20;
+    g.biomass = 5;
+    expect(g.playCombat(p.uid)).toBe(true);
+    expect(g.hp).toBe(24);
+    expect(g.biomass).toBe(3);
+  });
+
+  it('cannot be played without the biomass, or at full integrity (heal-only)', () => {
+    const g = new Game(5);
+    const p: CardInstance = { uid: 9401, defId: 'knitter', genes: [] };
+    g.surveyDeck.push(p);
+    g.sHand = [p];
+    g.hp = 10;
+    g.biomass = 2;
+    expect(g.surveyPlayable(p)).toBe('Not enough biomass.');
+    g.biomass = 3;
+    g.hp = g.maxHp;
+    expect(g.surveyPlayable(p)).toBe('Integrity already full.');
+    g.hp = 10;
+    expect(g.playSurvey(p.uid)).toBe(true);
+    expect(g.hp).toBe(16);
+    expect(g.biomass).toBe(0);
+  });
+
+  it('evolve like any card: Clotting adds heal, Frugal lowers the price', () => {
+    let c: CardInstance = { uid: 1, defId: 'poultice', genes: [] };
+    expect(genesFor(c).map((x) => x.id)).toEqual(expect.arrayContaining(['clotting', 'frugal']));
+    c = splice(splice(c, 'clotting'), 'frugal');
+    expect(cardStats(c).heal).toBe(6);
+    expect(cardStats(c).bioCost).toBe(1);
+    expect(cardText(c)).toContain('Costs 1 biomass.');
+    const free: CardInstance = { uid: 2, defId: 'clot', genes: [] };
+    expect(genesFor(free).some((x) => x.id === 'frugal')).toBe(false);
+  });
+});

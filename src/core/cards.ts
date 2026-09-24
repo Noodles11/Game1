@@ -19,7 +19,15 @@ const EMPTY: CardStats = {
   shatter: 0,
   retain: false,
   swarm: 0,
+  bioCost: 0,
 };
+
+/** Medic cards: free to play, they mend integrity. Some are paid for in biomass. */
+export const MEDIC_CARDS = ['clot', 'poultice', 'knit', 'dressing', 'knitter'];
+
+export function isMedic(defId: string): boolean {
+  return MEDIC_CARDS.includes(defId);
+}
 
 export const CARDS: Record<string, CardDef> = {
   // ---- Combat deck ----
@@ -87,6 +95,23 @@ export const CARDS: Record<string, CardDef> = {
     id: 'siphon', name: 'Siphon Blade', deck: 'combat', glyph: '⟠',
     base: { cost: 2, damage: 9, drain: 50 },
     flavor: 'Half of what it takes, it gives back to you.',
+  },
+
+  // ---- Medic: free heals ----
+  clot: {
+    id: 'clot', name: 'Clot Patch', deck: 'combat', glyph: '✚',
+    base: { cost: 0, heal: 2 },
+    flavor: 'A synthetic scab. Slap it on and keep moving.',
+  },
+  poultice: {
+    id: 'poultice', name: 'Biomass Poultice', deck: 'combat', glyph: '✚',
+    base: { cost: 0, heal: 4, bioCost: 2 },
+    flavor: 'Somebody else’s tissue, pressed into your wound. It takes.',
+  },
+  knit: {
+    id: 'knit', name: 'Marrow Knit', deck: 'combat', glyph: '✚',
+    base: { cost: 0, heal: 7, bioCost: 4 },
+    flavor: 'Bone grows back in seconds. You hear it more than feel it.',
   },
 
   // ---- Imprint cards: they change themselves, or others, for the rest of the run ----
@@ -244,6 +269,16 @@ export const CARDS: Record<string, CardDef> = {
     base: { cost: 1, exposed: 1 },
     flavor: 'Red light. Things in it flinch.',
   },
+  dressing: {
+    id: 'dressing', name: 'Field Dressing', deck: 'survey', glyph: '✚',
+    base: { cost: 0, heal: 2 },
+    flavor: 'Gauze from a locker. The expiry date is a century ago.',
+  },
+  knitter: {
+    id: 'knitter', name: 'Flesh Knitter', deck: 'survey', glyph: '✚',
+    base: { cost: 0, heal: 6, bioCost: 3 },
+    flavor: 'A handheld printer. Feed it biomass, and it prints you back.',
+  },
   notes: {
     id: 'notes', name: 'Field Notes', deck: 'survey', action: 'notes', glyph: '✎',
     base: { cost: 1 },
@@ -262,11 +297,12 @@ export const STARTER_COMBAT = ['scalpel', 'scalpel', 'scalpel', 'scalpel', 'brac
 export const STARTER_SURVEY = ['override', 'override', 'cutter', 'cutter', 'scan', 'pry', 'stim'];
 export const REWARD_COMBAT = [
   'scatter', 'spike', 'bonesaw', 'adrenal', 'echo', 'hook', 'flense', 'harpoon', 'graft', 'jack', 'siphon',
+  'clot', 'clot', 'poultice', 'poultice', 'knit',
   'needle', 'unscarred', 'scartissue', 'feeding', 'callus', 'donor', 'sibling', 'cannibal', 'flask', 'hunger', 'grief',
 ];
 /** Cards that only come from secret rooms. */
 export const SECRET_CARDS = ['apex', 'lazarus', 'overwrite'];
-export const REWARD_SURVEY = ['flare', 'scan', 'stim', 'pry', 'override', 'cutter', 'beacon', 'notes'];
+export const REWARD_SURVEY = ['flare', 'scan', 'stim', 'pry', 'override', 'cutter', 'beacon', 'notes', 'dressing', 'dressing', 'knitter'];
 
 // ---- Genes: how cards evolve ----
 
@@ -337,6 +373,14 @@ export const GENES: Record<string, Gene> = {
     text: '+1 hit, −2 damage', canApply: (s) => s.damage >= 4 && s.hits < 4,
     apply: (s) => { s.hits += 1; s.damage -= 2; },
   },
+  clotting: {
+    id: 'clotting', name: 'Clotting', prefix: 'Clotting', deck: 'any', cost: 4,
+    text: '+2 heal', canApply: (s) => s.heal > 0, apply: (s) => { s.heal += 2; },
+  },
+  frugal: {
+    id: 'frugal', name: 'Frugal', prefix: 'Frugal', deck: 'any', cost: 5,
+    text: '−1 biomass price', canApply: (s) => s.bioCost > 0, apply: (s) => { s.bioCost -= 1; },
+  },
   brittle: {
     id: 'brittle', name: 'Brittle', prefix: 'Brittle', deck: 'combat', cost: 0, defect: true,
     text: '−2 damage (defect)', canApply: (s) => s.damage > 0, apply: (s) => { s.damage -= 2; },
@@ -369,6 +413,7 @@ export function cardStats(card: CardInstance): CardStats {
   s.damage = Math.max(0, s.damage);
   s.block = Math.max(0, s.block);
   s.cost = Math.max(0, s.cost);
+  s.bioCost = Math.max(0, s.bioCost);
   return s;
 }
 
@@ -466,6 +511,7 @@ export function cardText(card: CardInstance, statsOverride?: CardStats, brief = 
   if (s.energy > 0) lines.push(`+${s.energy} Energy.`);
   if (s.draw > 0) lines.push(`Draw ${s.draw}.`);
   if (s.heal > 0) lines.push(`Heal ${s.heal}.`);
+  if (s.bioCost > 0 && !brief) lines.push(`Costs ${s.bioCost} biomass.`);
   if (s.biomass > 0) lines.push(`+${s.biomass} biomass.`);
   if (s.empower > 0) lines.push(`On hit, choose a card in hand: +${s.empower} damage, this fight.`);
   if (s.drain > 0) lines.push(s.drain >= 100 ? 'Gain biomass equal to damage dealt.' : `Gain biomass equal to ${s.drain}% of damage dealt.`);

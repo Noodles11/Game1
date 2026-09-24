@@ -2269,3 +2269,100 @@ body {
   padding: 0 10px;
   overflow: hidden;
 }
+
+/* ------------------------------------------------------------ medic cards
+   Free heals: green frame, a red cross ribbon, and a blood-drop price tag when they cost biomass. */
+.card.medic {
+  --accent: var(--toxin);
+  background-color: #e8efd9;
+  border-color: #2f5a2a;
+  border-top: 6px solid var(--toxin);
+  box-shadow: 3px 3px 0 #2f5a2a;
+}
+
+.card.medic::before {
+  content: '✚';
+  position: absolute;
+  z-index: 1;
+  right: 4px;
+  bottom: 3px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  line-height: 1;
+  background: var(--flesh);
+  color: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+}
+
+.card.medic .cost {
+  background: var(--toxin);
+}
+
+.card.medic .name {
+  color: #1d3b1a;
+}
+
+.card .biocost {
+  position: absolute;
+  z-index: 1;
+  top: 26px;
+  left: 4px;
+  min-width: 20px;
+  height: 22px;
+  padding: 3px 3px 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--paper);
+  background: var(--flesh);
+  border: 1.5px solid var(--ink);
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  clip-path: polygon(50% 0, 100% 45%, 100% 100%, 0 100%, 0 45%);
+  box-shadow: 1.5px 1.5px 0 var(--ink);
+}
+
+.card.big .biocost {
+  top: 38px;
+  left: 7px;
+  min-width: 26px;
+  height: 28px;
+  font-size: 14px;
+}
+
+.card.medic.selected {
+  box-shadow: 5px 5px 0 var(--toxin);
+}
+
+.card.medic::before {
+  top: -6px;
+  bottom: auto;
+  right: auto;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 16px;
+  font-size: 11px;
+  border-radius: 3px;
+}
+
+.card .biocost {
+  top: 4px;
+  left: 25px;
+}
+
+.card.big .biocost {
+  top: 7px;
+  left: 35px;
+}
+
+.card.medic::before {
+  left: auto;
+  right: 4px;
+  transform: none;
+}
