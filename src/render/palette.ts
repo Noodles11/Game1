@@ -1,4 +1,4 @@
-/** Shared palette. Mirrors the CSS tokens in style.css. */
+/** Scene palette. The print pass (print.ts) maps these onto ink, paper and spot inks. */
 export const INK = {
   void: '#0b0d10',
   hull: '#1a1d22',

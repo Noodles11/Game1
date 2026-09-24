@@ -2,6 +2,7 @@ import type { Game, GameEvent } from '../core/game';
 import type { Segment } from '../core/types';
 import { CREATURE_SIZE, drawCreature } from './creatures';
 import { INK, mix } from './palette';
+import { Print } from './print';
 import { fillPoly, noise, sketchStroke, type Pt } from './sketch';
 
 const NEAR = 0.22;
@@ -113,8 +114,15 @@ export class Stage {
   private time = 0;
   private readonly reduced: boolean;
 
+  /** The scene is painted here, then printed onto the visible canvas. */
+  private buf = document.createElement('canvas');
+  private print: Print | null;
+  private plain: CanvasRenderingContext2D | null = null;
+
   constructor(private canvas: HTMLCanvasElement, private game: Game) {
-    this.ctx = canvas.getContext('2d')!;
+    this.ctx = this.buf.getContext('2d')!;
+    this.print = Print.create(canvas);
+    if (!this.print) this.plain = canvas.getContext('2d');
     this.reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     this.setGame(game);
     new ResizeObserver(() => this.resize()).observe(canvas);
@@ -134,8 +142,8 @@ export class Stage {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.W = Math.max(1, r.width);
     this.H = Math.max(1, r.height);
-    this.canvas.width = Math.round(this.W * this.dpr);
-    this.canvas.height = Math.round(this.H * this.dpr);
+    this.canvas.width = this.buf.width = Math.round(this.W * this.dpr);
+    this.canvas.height = this.buf.height = Math.round(this.H * this.dpr);
   }
 
   private fx(uid: number): EnemyFx {
@@ -379,6 +387,8 @@ export class Stage {
     this.drawParticles();
     ctx.restore();
     this.drawOverlays(inFight);
+    if (this.print) this.print.render(this.buf, this.dpr, this.time);
+    else this.plain?.drawImage(this.buf, 0, 0);
   }
 
   /** A fork in the tunnel: a wall with one opening per path ahead. */
@@ -1552,8 +1562,5 @@ export class Stage {
       ctx.fillStyle = vg;
       ctx.fillRect(0, 0, this.W, this.H);
     }
-    // faint scanlines, like an old helmet feed
-    ctx.fillStyle = 'rgba(0,0,0,0.12)';
-    for (let y = 0; y < this.H; y += 3) ctx.fillRect(0, y, this.W, 1);
   }
 }

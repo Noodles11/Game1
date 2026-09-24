@@ -1,21 +1,26 @@
 /* Reprint — one dark world by design. Every color is painted explicitly. */
 :root {
   color-scheme: dark;
-  --void: #0b0d10;
-  --hull: #15171b;
-  --hull-2: #1e2126;
-  --line: #34373d;
-  --bone: #d8cfb8;
-  --bone-dim: #8c8574;
-  --sodium: #e3a33b;
-  --flesh: #b9505a;
-  --flesh-dark: #5a2530;
-  --cryo: #6fa3a0;
-  --signal: #b06fe0;
-  --toxin: #7fd48a;
-  --display: 'Major Mono Display', 'IBM Plex Mono', ui-monospace, monospace;
-  --body: 'IBM Plex Sans Condensed', 'Arial Narrow', system-ui, sans-serif;
-  --mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  /* Retro print: ink, paper, and a handful of spot inks. */
+  --void: #131113;
+  --hull: #1d1a1b;
+  --hull-2: #2a2526;
+  --line: #4a423c;
+  --bone: #f1e7cf;
+  --bone-dim: #b3a78d;
+  --paper: #f1e7cf;
+  --paper-2: #e6d9b8;
+  --ink: #131113;
+  --sodium: #eea423;
+  --flesh: #da412b;
+  --flesh-dark: #5e1f17;
+  --cryo: #1b9e94;
+  --signal: #7a4cb8;
+  --toxin: #5ea653;
+  --cobalt: #2e6bb8;
+  --display: 'Bebas Neue', 'Oswald', Impact, sans-serif;
+  --body: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --mono: 'Space Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
   --gutter: 16px;
 }
 
@@ -1485,4 +1490,289 @@ button:focus-visible {
 
 span.mnode {
   cursor: default;
+}
+
+
+/* ============================================================ retro print
+   Paper cards and ink everywhere else. Hard offset shadows instead of glows,
+   halftone dots instead of gradients. */
+
+html,
+body {
+  background: var(--ink);
+}
+
+.hud,
+.sectorline,
+.track {
+  background: var(--ink);
+}
+
+.hud {
+  border-bottom: 3px solid var(--paper);
+  box-shadow: 0 3px 0 var(--flesh);
+  margin-bottom: 3px;
+}
+
+.hud .clone,
+.sheet h2,
+.card.world .name,
+.speech,
+.maptitle b {
+  font-family: var(--display);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.hud .clone {
+  font-size: 22px;
+  line-height: 0.95;
+}
+
+.biomass b {
+  font-family: var(--display);
+  font-size: 30px;
+}
+
+.stage canvas {
+  border-top: 3px solid var(--ink);
+  border-bottom: 3px solid var(--ink);
+}
+
+.dock {
+  background: var(--ink);
+  border-top: 3px solid var(--paper);
+}
+
+.hint {
+  font-size: 16px;
+}
+
+/* cards: printed on paper */
+.card {
+  background-color: var(--paper);
+  background-image: radial-gradient(rgba(19, 17, 19, 0.09) 0.9px, transparent 1.2px);
+  background-size: 4px 4px;
+  border: 2px solid var(--ink);
+  border-top: 6px solid var(--accent);
+  border-radius: 3px;
+  box-shadow: 3px 3px 0 var(--ink);
+  color: var(--ink);
+}
+
+.card.survey,
+.card.mod,
+.card.world,
+.card.world.mireth,
+.card.world.orun,
+.card.boon {
+  background-color: var(--paper);
+  background-image: radial-gradient(rgba(19, 17, 19, 0.09) 0.9px, transparent 1.2px);
+  background-size: 4px 4px;
+  border-color: var(--ink);
+  border-top-color: var(--accent);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.card.world,
+.card.boon {
+  --accent: var(--cryo);
+}
+
+.card.mod {
+  --accent: var(--signal);
+}
+
+.card .name,
+.card.world .name {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.card .name {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+
+.card .text {
+  color: #3a3230;
+  font-size: 11.5px;
+}
+
+.card .kind,
+.card.big .flavor,
+.card.world .sub {
+  color: #6b5f55;
+}
+
+.card .glyph {
+  color: var(--ink);
+  opacity: 0.18;
+}
+
+.card .cost {
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  font-family: var(--mono);
+  font-weight: 700;
+}
+
+.card.evolved {
+  border-color: var(--flesh);
+  border-top-color: var(--accent);
+  box-shadow: 3px 3px 0 var(--flesh);
+}
+
+.card.buffed {
+  border-color: var(--signal);
+  box-shadow: 3px 3px 0 var(--signal);
+}
+
+.card.buffed .text {
+  color: var(--signal);
+  font-weight: 700;
+}
+
+.card.selected,
+.card.survey.selected,
+.card.mod.selected,
+.card.mod:active {
+  box-shadow: 5px 5px 0 var(--accent);
+  border-color: var(--ink);
+}
+
+.card.dim {
+  opacity: 0.4;
+  filter: grayscale(0.6);
+}
+
+.card.world.locked {
+  opacity: 0.45;
+  filter: grayscale(1);
+}
+
+.card .genes i {
+  border: 1px solid var(--ink);
+}
+
+/* buttons: ink stamps */
+.btn {
+  border: 2px solid var(--paper);
+  border-radius: 3px;
+  color: var(--paper);
+  font-family: var(--mono);
+  font-weight: 700;
+}
+
+.btn.primary {
+  background: var(--sodium);
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: 4px 4px 0 var(--paper);
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+}
+
+.btn.danger {
+  background: var(--flesh);
+  border-color: var(--ink);
+  color: var(--paper);
+  box-shadow: 4px 4px 0 var(--paper);
+}
+
+.btn.cryo {
+  border-color: var(--cryo);
+  color: var(--cryo);
+}
+
+.btn:not(:disabled):active {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0 var(--paper);
+}
+
+/* hints: a paper slip */
+.hintbubble {
+  background: var(--paper);
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  border-left: 6px solid var(--sodium);
+  border-radius: 2px;
+  box-shadow: 4px 4px 0 var(--ink);
+  font-size: 14px;
+}
+
+.hintbubble b,
+.hintbubble strong {
+  color: var(--ink);
+}
+
+/* sheets: ink panels with a paper rule */
+.sheet {
+  background: var(--ink);
+  border-top: 3px solid var(--paper);
+  box-shadow: 0 -4px 0 var(--sodium);
+}
+
+.sheet.full {
+  background:
+    radial-gradient(rgba(241, 231, 207, 0.06) 1px, transparent 1.3px) 0 0 / 5px 5px,
+    var(--ink);
+}
+
+.sheet h2 {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.sheet p {
+  font-size: 16px;
+}
+
+.intent {
+  background: var(--ink);
+  border: 2px solid var(--paper);
+  border-radius: 2px;
+  box-shadow: 2px 2px 0 var(--flesh);
+}
+
+.foe .hp,
+.meter .bar {
+  border: 1.5px solid var(--paper);
+  border-radius: 0;
+}
+
+.tagchip {
+  border-radius: 2px;
+}
+
+.corpse,
+.gene {
+  background: var(--hull);
+  border: 2px solid var(--paper);
+  border-radius: 3px;
+  box-shadow: 3px 3px 0 var(--flesh);
+}
+
+.gene:disabled {
+  box-shadow: none;
+}
+
+.mnode {
+  border-width: 2px;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.hand .card .name {
+  font-size: 13px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.foe .name,
+.foe .nums {
+  color: var(--paper);
+  text-shadow: 0 0 2px var(--ink), 1px 1px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink);
 }
