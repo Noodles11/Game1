@@ -270,3 +270,36 @@ Rebalance that came with it (autoplay bot, 120 runs: 40% clear Kessra, 40% die i
 - Enemy plating values cut to 2–5 (was 4–14), since each point now counts on every hit.
 - Enemies hit harder and less often: multi-hits of 2–3 became 1 big hit or ×2 at 5–11 per hit.
 - Every enemy attack +1.
+
+## 13. Germline genes and gateways
+
+World bosses no longer offer a fixed pair of boons. Killing one opens the clone's sequence:
+**choose 1 of 3 germline genes you do not have yet**. Genes are permanent — every future clone is born with them.
+Ten to collect:
+
+| Gene | Effect |
+|---|---|
+| Crystalline Bones | Start every fight with 4 plating. |
+| Resonant Core | The first card of every fight resolves twice. |
+| Mitochondrial Surplus | +1 tactic energy every turn. |
+| Pineal Gate | See hidden gateways (below). |
+| Deep Lungs | +1 oxygen while exploring. |
+| Dense Marrow | +10 max integrity. |
+| Carrion Gut | Eating biomass heals 50% more. |
+| Second Heart | Once per run, a killing blow leaves you at 30% integrity. |
+| Spare Cell | Draw 2 extra tactics on the first turn of every fight. |
+| Heirloom Print | The last clone's most-imprinted tactic is reprinted into the next one, Imprints intact. |
+
+### Gateways (Pineal Gate only)
+
+Violet tears in the wall. One per lab sector; on world maps, about half the junctions carry one.
+Each leads to a secret room:
+
+| Room | What happens |
+|---|---|
+| Reliquary | Choose 1 of 2 secret cards (Apex Print, Lazarus Cell, Overwrite). Costs 8 max integrity for the run. |
+| Lair | Fight the Hollow Twin (46 HP, an earlier print that learned your moves). Pays 10 biomass and a reward with 2 secret cards. |
+| Vat room | Restores integrity to full. |
+| Fold (shortcut) | Lab sector 1: jump straight to sector 2, skipping The Choir. World map: skip a row. |
+
+Every room can be left without taking anything.

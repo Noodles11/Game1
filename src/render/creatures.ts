@@ -15,6 +15,7 @@ export interface CreatureFx {
 export const CREATURE_SIZE: Record<string, number> = {
   tick: 0.55,
   copy: 1.0,
+  hollow: 1.3,
   husk: 1.05,
   choir: 1.55,
   drone: 0.5,
@@ -49,7 +50,8 @@ export function drawCreature(
 
   switch (id) {
     case 'tick': drawTick(ctx, u, fx, s); break;
-    case 'copy': drawCopy(ctx, u, fx, s); break;
+    case 'copy':
+    case 'hollow': drawCopy(ctx, u, fx, s); break;
     case 'husk': drawHusk(ctx, u, fx, s); break;
     case 'choir': drawChoir(ctx, u, fx, s); break;
     case 'drone': drawDrone(ctx, u, fx, s); break;

@@ -231,6 +231,21 @@ const PLATES: Record<string, Plate> = {
       [30, 36, 42].map((y) => line(`M25 ${y - 4} L43 ${y - 2}`).replace('stroke-width="3"', 'stroke-width="1.5"')).join('') +
       P('M58 44 L80 10 L84 12 L62 46 L57 49 Z'),
   },
+  apex: {
+    color: VIOLET, sun: [50, 24],
+    emblem: P('M50 6 L72 50 L28 50 Z') + P('M50 20 L60 42 L40 42 Z', `fill="${VIOLET}"`) + line('M20 56 L80 56'),
+  },
+  lazarus: {
+    color: GREEN, sun: [50, 26],
+    emblem: `<rect x="34" y="8" width="32" height="48" rx="14" fill="${PAPER}" stroke="${INK}" stroke-width="3"/>` +
+      `<rect x="38" y="30" width="24" height="22" rx="8" fill="${GREEN}"/>` +
+      P('M47 20 L53 20 L53 25 L58 25 L58 31 L53 31 L53 36 L47 36 L47 31 L42 31 L42 25 L47 25 Z'),
+  },
+  overwrite: {
+    color: VIOLET, sun: [60, 22],
+    emblem: `<path d="M50 14 A18 18 0 1 0 68 32" fill="none" stroke="${INK}" stroke-width="4"/>` + P('M62 24 L74 30 L64 38 Z') +
+      P('M46 24 L56 24 L52 32 L58 32 L44 48 L48 36 L42 36 Z', `fill="${MUSTARD}" stroke="${INK}" stroke-width="1.2"`),
+  },
 };
 
 const FALLBACK: Plate = { color: MUSTARD, sun: [50, 26], emblem: `<circle cx="50" cy="30" r="10" fill="${INK}"/>` };
@@ -262,5 +277,35 @@ export function cardArt(defId: string): string {
     <circle cx="${sx}" cy="${sy}" r="15" fill="url(#ht-paper)"/>
     <path d="M0 50 Q30 45 50 49 T100 47 L100 60 L0 60 Z" fill="url(#ht-ink)"/>
     <g fill="${INK}">${p.emblem}</g>
+  </svg>`;
+}
+
+const GERM_COLOR: Record<string, string> = {
+  'crystal-bones': TEAL, 'resonant-core': COBALT, surplus: MUSTARD, gatesight: VIOLET, lungs: COBALT,
+  marrow: PAPER, carrion: RED, heart: RED, sparecell: GREEN, heirloom: VIOLET,
+};
+
+/** A germline plate: a double helix unwinding behind the gene's glyph. */
+export function germArt(id: string, glyph: string): string {
+  const col = GERM_COLOR[id] ?? MUSTARD;
+  const rungs = Array.from({ length: 11 }, (_, i) => {
+    const x = 8 + i * 8.4;
+    const a = Math.sin(i * 0.75) * 16;
+    return `<path d="M${x.toFixed(1)} ${(30 - a).toFixed(1)} L${x.toFixed(1)} ${(30 + a).toFixed(1)}" stroke="${INK}" stroke-width="1.4" stroke-dasharray="2 1.5"/>`;
+  }).join('');
+  const strand = (sign: number) => {
+    const pts = Array.from({ length: 41 }, (_, i) => {
+      const x = 8 + i * 2.1;
+      return `${i ? 'L' : 'M'}${x.toFixed(1)} ${(30 - sign * Math.sin((x - 8) * 0.089) * 16).toFixed(1)}`;
+    }).join(' ');
+    return `<path d="${pts}" fill="none" stroke="${INK}" stroke-width="3"/>`;
+  };
+  return `<svg class="art" viewBox="0 0 100 60" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <rect width="100" height="60" fill="${PAPER}"/>
+    <circle cx="50" cy="30" r="20" fill="${col}"/>
+    <circle cx="50" cy="30" r="20" fill="url(#ht-paper)"/>
+    ${rungs}${strand(1)}${strand(-1)}
+    <circle cx="50" cy="30" r="11" fill="${INK}"/>
+    <text x="50" y="35" text-anchor="middle" font-size="14" font-family="system-ui, sans-serif" fill="${PAPER}">${glyph}</text>
   </svg>`;
 }

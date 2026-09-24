@@ -1,18 +1,23 @@
 import {
-  REWARD_COMBAT, REWARD_SURVEY, STARTER_COMBAT, STARTER_SURVEY,
-  addImprint, cardDef, cardStats, genesFor, mutationsFor, needsTarget, splice, spliceCost,
+  REWARD_COMBAT, REWARD_SURVEY, SECRET_CARDS, STARTER_COMBAT, STARTER_SURVEY,
+  CARDS, addImprint, cardDef, cardStats, genesFor, mutationsFor, needsTarget, splice, spliceCost,
 } from './cards';
 import { ENEMIES } from './enemies';
 import { Rng } from './rng';
 import type {
-  CardInstance, CardStats, Corpse, DeckKind, EnemyState, ImprintStat, Intent, MapNode, Meta, Modifiers, Segment, Statuses,
-  WorldMap,
+  CardInstance, CardStats, Corpse, DeckKind, EnemyState, ImprintStat, Intent, MapNode, Meta, Modifiers, SecretKind, Segment,
+  Statuses, WorldMap,
 } from './types';
-import { BOONS, EVENTS, LOGS, WORLDS, generateMap } from './worlds';
+import { BOONS, EVENTS, GERMLINE, LOGS, MAP_ROWS, WORLDS, generateMap } from './worlds';
 
 export type Phase =
   | 'explore' | 'combat' | 'harvest' | 'reward' | 'loot' | 'splice' | 'modifier'
-  | 'mainframe' | 'map' | 'event' | 'boon' | 'dead' | 'won';
+  | 'mainframe' | 'map' | 'event' | 'boon' | 'secret' | 'dead' | 'won';
+
+/** Maximum integrity a Reliquary card costs. */
+export const RELIQUARY_PRICE = 8;
+const LAIR_BIOMASS = 10;
+const GERMLINE_OFFERS = 3;
 
 export const freshMeta = (): Meta => ({ boons: [], worldsCleared: [], logs: [] });
 
@@ -134,6 +139,14 @@ export class Game {
   boonOffers: string[] = [];
   /** Plating kept into the next turn (Crystal Skin). */
   retainBlock = 0;
+  /** The secret room the player is standing in, and where they came from. */
+  secret: { kind: SecretKind; from: 'explore' | 'map' } | null = null;
+  /** A secret-room fight is in progress (its rewards and exit differ). */
+  secretFight: 'explore' | 'map' | null = null;
+  /** Gateways at each map junction row (Gatesight only). */
+  mapGates: Record<number, { kind: SecretKind; used: boolean }> = {};
+  /** Second Heart already spent this run. */
+  heartUsed = false;
 
   // Survey (explore) piles
   sDraw: CardInstance[] = [];
@@ -162,9 +175,21 @@ export class Game {
     this.meta = meta;
     this.combatDeck = STARTER_COMBAT.map((id) => this.makeCard(id));
     this.surveyDeck = STARTER_SURVEY.map((id) => this.makeCard(id));
+    if (this.hasBoon('marrow')) {
+      this.maxHp += 10;
+      this.hp += 10;
+    }
+    const h = meta.heirloom;
+    if (this.hasBoon('heirloom') && h && !!CARDS[h.defId]) {
+      this.combatDeck.push({
+        uid: this.nextUid++, defId: h.defId, genes: [...h.genes],
+        imprint: h.imprint ? { ...h.imprint } : undefined, mem: { imprints: 1 },
+      });
+    }
     const sector1 = this.buildSector1();
     this.sector2Start = sector1.length;
     this.segments = [...sector1, ...this.buildSector2()];
+    if (this.hasBoon('gatesight')) this.placeLabGates();
     this.sDraw = this.rng.shuffle([...this.surveyDeck]);
     this.updateVisibility();
     this.newSurveyTurn();
@@ -172,6 +197,16 @@ export class Game {
   }
 
   // ------------------------------------------------------------------ setup
+
+  /** Gatesight: one hidden gateway in each lab sector. The first may be a shortcut. */
+  private placeLabGates() {
+    const spots = (from: number, to: number) =>
+      this.segments.map((s, i) => ({ s, i })).filter(({ s, i }) => i > from && i < to && (s.feature === 'none' || s.feature === 'crate'));
+    const s1 = spots(0, this.sector2Start - 1);
+    const s2 = spots(this.sector2Start, this.segments.length - 1);
+    if (s1.length) this.rng.pick(s1).s.gate = this.rng.pick<SecretKind>(['reliquary', 'lair', 'vat', 'shortcut']);
+    if (s2.length) this.rng.pick(s2).s.gate = this.rng.pick<SecretKind>(['reliquary', 'lair', 'vat']);
+  }
 
   private makeCard(defId: string): CardInstance {
     return { uid: this.nextUid++, defId, genes: [] };
@@ -228,6 +263,10 @@ export class Game {
     return this.world ?? 'lab';
   }
 
+  get maxOxygen(): number {
+    return MAX_OXYGEN + (this.hasBoon('lungs') ? 1 : 0);
+  }
+
   hasBoon(id: string): boolean {
     return this.meta.boons.includes(id);
   }
@@ -266,7 +305,7 @@ export class Game {
   private newSurveyTurn() {
     this.sDiscard.push(...this.sHand);
     this.sHand = [];
-    this.oxygen = MAX_OXYGEN;
+    this.oxygen = this.maxOxygen;
     this.drawSurvey(SURVEY_HAND);
     this.message = this.exploreHint();
   }
@@ -511,6 +550,16 @@ export class Game {
       }
     }
     this.offers = [];
+    if (this.secretFight) {
+      const from = this.secretFight;
+      this.secretFight = null;
+      if (from === 'map') this.enterMap();
+      else {
+        this.phase = 'explore';
+        this.newSurveyTurn();
+      }
+      return;
+    }
     const wasReward = this.phase === 'reward';
     const bossSeg = wasReward ? this.segments[this.pos] : undefined;
     if (bossSeg?.sectorBoss) {
@@ -552,6 +601,12 @@ export class Game {
     this.world = id;
     this.map = generateMap(this.rng, id);
     this.mapNode = null;
+    this.mapGates = {};
+    if (this.hasBoon('gatesight')) {
+      for (let r = 1; r < MAP_ROWS - 1; r++) {
+        if (this.rng.next() < 0.45) this.mapGates[r] = { kind: this.rng.pick<SecretKind>(['reliquary', 'lair', 'vat', 'shortcut']), used: false };
+      }
+    }
     this.segments = [];
     this.pos = 0;
     this.enterMap();
@@ -669,6 +724,100 @@ export class Game {
     this.enterMap();
   }
 
+  // --------------------------------------------------------------- gateways
+
+  /** The gateway the player can step through right now, if any. */
+  gateHere(): SecretKind | null {
+    if (this.phase === 'explore') {
+      const seg = this.segments[this.pos];
+      return seg?.gate && !seg.gateUsed ? seg.gate : null;
+    }
+    if (this.phase === 'map') {
+      const g = this.mapGates[this.depth];
+      return g && !g.used ? g.kind : null;
+    }
+    return null;
+  }
+
+  enterGate(): boolean {
+    const kind = this.gateHere();
+    if (!kind) return false;
+    const from = this.phase === 'map' ? 'map' : 'explore';
+    if (from === 'map') this.mapGates[this.depth].used = true;
+    else this.segments[this.pos].gateUsed = true;
+    this.secret = { kind, from };
+    this.phase = 'secret';
+    this.offers = kind === 'reliquary' ? this.rng.sample(SECRET_CARDS, 2).map((defId) => ({ defId, deck: 'combat' as const })) : [];
+    this.emit({ type: 'warp' });
+    return true;
+  }
+
+  /** Reliquary: take a card, pay with maximum integrity. */
+  secretTake(index: number): boolean {
+    if (this.secret?.kind !== 'reliquary' || !this.offers[index]) return false;
+    this.combatDeck.push(this.makeCard(this.offers[index].defId));
+    this.maxHp = Math.max(1, this.maxHp - RELIQUARY_PRICE);
+    this.hp = Math.min(this.hp, this.maxHp);
+    this.leaveSecret();
+    return true;
+  }
+
+  /** Vat room: float until whole again. */
+  secretVat(): boolean {
+    if (this.secret?.kind !== 'vat') return false;
+    this.healPlayer(this.maxHp);
+    this.leaveSecret();
+    return true;
+  }
+
+  /** Lair: wake what is sleeping in there. */
+  secretFightStart(): boolean {
+    if (this.secret?.kind !== 'lair') return false;
+    this.secretFight = this.secret.from;
+    this.secret = null;
+    this.startCombat({ feature: 'enemies', encounter: ['hollow'], dark: false, lit: true, revealed: true, cleared: false });
+    return true;
+  }
+
+  /** Shortcut: in the lab, fold straight to sector 2; on a map, skip a row. */
+  secretShortcut(): boolean {
+    if (this.secret?.kind !== 'shortcut') return false;
+    const from = this.secret.from;
+    this.secret = null;
+    this.offers = [];
+    if (from === 'explore') {
+      if (this.pos < this.sector2Start) this.pos = this.sector2Start;
+      this.segments[this.pos].revealed = true;
+      this.updateVisibility();
+      this.phase = 'explore';
+      this.emit({ type: 'warp' });
+      this.newSurveyTurn();
+      this.message = 'The gateway folds the ship. You step out a sector deeper.';
+    } else {
+      const skip = this.rng.pick(this.passages());
+      skip.visited = true;
+      skip.hidden = false;
+      this.mapNode = skip.id;
+      this.emit({ type: 'warp' });
+      this.enterMap();
+      this.message = 'The gateway spits you out further down. A whole stretch of cave, skipped.';
+    }
+    return true;
+  }
+
+  leaveSecret(): void {
+    if (this.phase !== 'secret' || !this.secret) return;
+    const from = this.secret.from;
+    this.secret = null;
+    this.offers = [];
+    this.emit({ type: 'warp' });
+    if (from === 'map') this.enterMap();
+    else {
+      this.phase = 'explore';
+      this.newSurveyTurn();
+    }
+  }
+
   // ---------------------------------------------------------------- events
 
   private startEvent(id: string) {
@@ -709,7 +858,9 @@ export class Game {
     const w = WORLDS[this.world!];
     if (!this.meta.worldsCleared.includes(w.id)) this.meta.worldsCleared.push(w.id);
     if (!this.meta.logs.includes(w.bossLog)) this.meta.logs.push(w.bossLog);
-    this.boonOffers = w.boons.filter((b) => !this.hasBoon(b));
+    this.rememberHeirloom();
+    const unowned = GERMLINE.filter((b) => !this.hasBoon(b));
+    this.boonOffers = this.rng.sample(unowned, Math.min(GERMLINE_OFFERS, unowned.length));
     this.phase = this.boonOffers.length ? 'boon' : 'won';
   }
 
@@ -719,6 +870,15 @@ export class Game {
     this.boonOffers = [];
     this.phase = 'won';
     return true;
+  }
+
+  /** Heirloom: remember this clone's most-imprinted tactic for the next one. */
+  private rememberHeirloom() {
+    let best: CardInstance | null = null;
+    for (const c of this.combatDeck) {
+      if ((c.mem?.imprints ?? 0) > (best?.mem?.imprints ?? 0)) best = c;
+    }
+    if (best) this.meta.heirloom = { defId: best.defId, genes: [...best.genes], imprint: best.imprint ? { ...best.imprint } : undefined };
   }
 
   logText(id: string): string {
@@ -871,10 +1031,11 @@ export class Game {
     this.retainBlock = 0;
     c.playedThisTurn = 0;
     c.lastWasAttack = false;
-    c.energyCap = MAX_ENERGY + (this.modifiers.energy ? 1 : 0);
+    c.energyCap = MAX_ENERGY + (this.modifiers.energy ? 1 : 0) + (this.hasBoon('surplus') ? 1 : 0);
     c.energy = c.energyCap - (c.ambush && c.turn === 1 ? 1 : 0);
     // held cards take their slots
-    this.drawCombat(Math.max(0, COMBAT_HAND - c.hand.length));
+    const spare = c.turn === 1 && this.hasBoon('sparecell') ? 2 : 0;
+    this.drawCombat(Math.max(0, COMBAT_HAND - c.hand.length) + spare);
   }
 
   private drawCombat(n: number) {
@@ -1304,6 +1465,14 @@ export class Game {
   }
 
   private die() {
+    if (this.hasBoon('heart') && !this.heartUsed) {
+      this.heartUsed = true;
+      this.hp = Math.ceil(this.maxHp * 0.3);
+      this.emit({ type: 'heal', amount: this.hp });
+      this.emit({ type: 'whisper', text: 'Something behind your heart kicks once, hard. You are not done.' });
+      return;
+    }
+    this.rememberHeirloom();
     this.hp = 0;
     this.phase = 'dead';
     this.combat = null;
@@ -1316,7 +1485,7 @@ export class Game {
         if (card.defId === 'hunger' && !c.played.includes(card.uid)) this.imprint(card, 'damage', -2);
       }
     }
-    this.segments[this.pos].cleared = true;
+    if (this.segments[this.pos] && !this.secretFight) this.segments[this.pos].cleared = true;
     this.phase = 'harvest';
     this.message = 'Harvest the biomass. Eat it to mend, or render it to splice.';
   }
@@ -1331,7 +1500,8 @@ export class Game {
     const k = this.corpses.find((x) => x.uid === uid && !x.taken);
     if (!k || this.phase !== 'harvest') return;
     k.taken = true;
-    this.healPlayer(this.corpseYield(k));
+    const y = this.corpseYield(k);
+    this.healPlayer(this.hasBoon('carrion') ? Math.round(y * 1.5) : y);
   }
 
   render(uid: number): void {
@@ -1348,6 +1518,12 @@ export class Game {
     this.playerStatus = freshStatus();
     this.playerBlock = 0;
     const seg = this.segments[this.pos];
+    if (this.secretFight) {
+      this.offers = [...this.rng.sample(SECRET_CARDS, 2), this.rng.pick(this.rewardPool())].map((defId) => ({ defId, deck: 'combat' as const }));
+      this.gainBiomass(LAIR_BIOMASS);
+      this.phase = 'reward';
+      return;
+    }
     const pool = seg?.elite && this.world ? WORLDS[this.world].cards : this.rewardPool();
     this.offers = this.rng.sample(pool, 3).map((defId) => ({ defId, deck: 'combat' as const }));
     if (seg?.elite) this.gainBiomass(ELITE_BIOMASS);
@@ -1416,6 +1592,10 @@ export class Game {
       boonOffers: this.boonOffers,
       retainBlock: this.retainBlock,
       seenEvents: this.seenEvents,
+      secret: this.secret,
+      secretFight: this.secretFight,
+      mapGates: this.mapGates,
+      heartUsed: this.heartUsed,
     });
   }
 
@@ -1482,6 +1662,10 @@ export class Game {
       g.boonOffers = d.boonOffers;
       g.retainBlock = d.retainBlock;
       g.seenEvents = d.seenEvents;
+      g.secret = d.secret ?? null;
+      g.secretFight = d.secretFight ?? null;
+      g.mapGates = d.mapGates ?? {};
+      g.heartUsed = d.heartUsed ?? false;
       g.events = [];
       return g;
     } catch {

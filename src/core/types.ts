@@ -138,7 +138,16 @@ export interface Segment {
   eventId?: string;
   /** How the section is built. Tunnel is the default closed corridor. */
   shape?: SegmentShape;
+  /** A hidden gateway in this section's wall. Only a clone with Gatesight sees it. */
+  gate?: SecretKind;
+  gateUsed?: boolean;
 }
+
+/**
+ * Where a gateway leads.
+ * reliquary: rare cards at a steep price. lair: an uncommon mob. vat: restores integrity. shortcut: skips ahead.
+ */
+export type SecretKind = 'reliquary' | 'lair' | 'vat' | 'shortcut';
 
 /** tunnel: closed corridor. cavern: open, walls replaced by structures. window/vats: lab variants. */
 export type SegmentShape = 'tunnel' | 'cavern' | 'window' | 'vats';
@@ -180,7 +189,10 @@ export interface WorldMap {
 
 /** Permanent progress. Survives death and new runs. */
 export interface Meta {
+  /** Germline genes: permanent DNA rewrites earned from world bosses. */
   boons: string[];
   worldsCleared: string[];
   logs: string[];
+  /** The last clone's most-imprinted tactic, for the Heirloom gene. */
+  heirloom?: { defId: string; genes: string[]; imprint?: CardInstance['imprint'] };
 }

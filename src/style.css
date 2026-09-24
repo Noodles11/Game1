@@ -2181,3 +2181,91 @@ body {
   top: 12px;
   right: 8px;
 }
+
+/* ------------------------------------------------------------ gateways */
+.btn.gatebtn {
+  border-color: var(--signal);
+  color: var(--paper);
+  background: var(--signal);
+  box-shadow: 3px 3px 0 var(--paper), 0 0 14px rgba(122, 76, 184, 0.7);
+}
+
+.germline {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.germ {
+  padding: 6px 8px;
+  border: 1.5px dashed var(--line);
+  color: var(--bone-dim);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.germ b {
+  display: block;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.germ.on {
+  border: 2px solid var(--paper);
+  background: var(--hull);
+  color: var(--paper);
+  box-shadow: 3px 3px 0 var(--signal);
+}
+
+.germ.on b {
+  color: var(--sodium);
+}
+
+.card.boon .art {
+  margin-bottom: 6px;
+}
+
+.sectorline .mod.boon {
+  background: var(--signal);
+  color: var(--paper);
+  border: 0;
+  box-shadow: 2px 2px 0 var(--paper);
+  text-shadow: none;
+}
+
+.btn.gatebtn {
+  min-width: 52px;
+  min-height: 52px;
+  padding: 0;
+  font-size: 26px;
+  line-height: 1;
+}
+
+.bar .btn.primary {
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.bar .btn.primary {
+  font-size: 19px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+/* grid track may not grow past the screen */
+.dock {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.bar {
+  gap: 8px;
+}
+
+.bar .btn.primary {
+  font-size: 17px;
+  padding: 0 10px;
+  overflow: hidden;
+}

@@ -25,6 +25,19 @@ export const ENEMIES: Record<string, EnemyDef> = {
       { label: 'Maul', attack: 13 },
     ],
   },
+  hollow: {
+    id: 'hollow',
+    name: 'Hollow Twin',
+    hp: 46,
+    biomass: 12,
+    flavor: 'Printed one batch before you, and left behind a gateway. It learned your moves in the dark.',
+    pattern: [
+      { label: 'Your Stance', block: 3, attack: 9 },
+      { label: 'Mirror Cut', attack: 7, hits: 2 },
+      { label: 'Recall', strength: 2, line: 'i was printed before you. i know your next move.' },
+      { label: 'Overhand', attack: 16 },
+    ],
+  },
   husk: {
     id: 'husk',
     name: 'Custodian Husk',

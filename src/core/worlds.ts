@@ -34,6 +34,7 @@ export interface WorldDef {
   bossLog: string;
 }
 
+/** Germline genes: permanent rewrites of the clone line, offered by world bosses. Ten to collect. */
 export const BOONS: Record<string, Boon> = {
   'crystal-bones': {
     id: 'crystal-bones', name: 'Crystalline Bones', glyph: '◇',
@@ -45,7 +46,49 @@ export const BOONS: Record<string, Boon> = {
     text: 'The first card you play in every fight resolves twice.',
     flavor: 'Somewhere under your ribs, a note that never stops ringing.',
   },
+  surplus: {
+    id: 'surplus', name: 'Mitochondrial Surplus', glyph: '⚡',
+    text: '+1 tactic energy every turn.',
+    flavor: 'Twice the furnaces in every cell. You run hot now.',
+  },
+  gatesight: {
+    id: 'gatesight', name: 'Pineal Gate', glyph: '⟁',
+    text: 'See hidden gateways: secret rooms, rare fights, restoring vats and shortcuts.',
+    flavor: 'A third eye, grown shut until now. The walls were never solid.',
+  },
+  lungs: {
+    id: 'lungs', name: 'Deep Lungs', glyph: '◌',
+    text: '+1 oxygen while exploring.',
+    flavor: 'Extra sacs along the spine. You breathe less and walk further.',
+  },
+  marrow: {
+    id: 'marrow', name: 'Dense Marrow', glyph: '▥',
+    text: '+10 max integrity.',
+    flavor: 'Heavier bones. The printer was told to stop being careful with you.',
+  },
+  carrion: {
+    id: 'carrion', name: 'Carrion Gut', glyph: '⊕',
+    text: 'Eating biomass heals 50% more.',
+    flavor: 'Nothing is wasted. Nothing was ever going to be.',
+  },
+  heart: {
+    id: 'heart', name: 'Second Heart', glyph: '♥',
+    text: 'Once per run, a killing blow leaves you at 30% integrity instead.',
+    flavor: 'It sleeps behind the first one. It wakes exactly once.',
+  },
+  sparecell: {
+    id: 'sparecell', name: 'Spare Cell', glyph: '▤',
+    text: 'Draw 2 extra tactics on the first turn of every fight.',
+    flavor: 'A reflex arc wired straight to the hands. You are already moving.',
+  },
+  heirloom: {
+    id: 'heirloom', name: 'Heirloom Print', glyph: '⧉',
+    text: 'Your last clone’s most-imprinted tactic is reprinted into the next one, Imprints intact.',
+    flavor: 'The printer keeps one thing from each of you. It chooses the scars.',
+  },
 };
+
+export const GERMLINE = Object.keys(BOONS);
 
 export const WORLDS: Record<string, WorldDef> = {
   kessra: {

@@ -167,6 +167,23 @@ export const CARDS: Record<string, CardDef> = {
     flavor: 'It keeps what the others lose. It is getting heavy.',
   },
 
+  // ---- Secret rooms: only found through gateways ----
+  apex: {
+    id: 'apex', name: 'Apex Print', deck: 'combat', glyph: '▲',
+    base: { cost: 2, damage: 10, hits: 2 },
+    flavor: 'The print they were aiming for. It was never finished. It does not need to be.',
+  },
+  lazarus: {
+    id: 'lazarus', name: 'Lazarus Cell', deck: 'combat', glyph: '✚',
+    base: { cost: 1, heal: 6, block: 6 },
+    flavor: 'It was dead in the vat. It got better. So will you.',
+  },
+  overwrite: {
+    id: 'overwrite', name: 'Overwrite', deck: 'combat', glyph: '⟲',
+    base: { cost: 0, energy: 2, draw: 1 },
+    flavor: 'Root access to your own nervous system. Nobody should have this.',
+  },
+
   // ---- Kessra (Glass Caves) ----
   resonant: {
     id: 'resonant', name: 'Resonant Strike', deck: 'combat', glyph: '≀',
@@ -247,6 +264,8 @@ export const REWARD_COMBAT = [
   'scatter', 'spike', 'bonesaw', 'adrenal', 'echo', 'hook', 'flense', 'harpoon', 'graft', 'jack', 'siphon',
   'needle', 'unscarred', 'scartissue', 'feeding', 'callus', 'donor', 'sibling', 'cannibal', 'flask', 'hunger', 'grief',
 ];
+/** Cards that only come from secret rooms. */
+export const SECRET_CARDS = ['apex', 'lazarus', 'overwrite'];
 export const REWARD_SURVEY = ['flare', 'scan', 'stim', 'pry', 'override', 'cutter', 'beacon', 'notes'];
 
 // ---- Genes: how cards evolve ----

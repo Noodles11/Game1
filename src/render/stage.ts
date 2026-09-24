@@ -588,6 +588,11 @@ export class Stage {
     } else {
       this.drawRing(96, nearZ, this.lampOn(96), false);
     }
+    // the gateway stands in front of everything, bottom left
+    if (g.gateHere()) {
+      const zg = 1.05;
+      this.drawGateway(this.W * 0.13, this.floorY(zg), this.unit(zg) * 0.75, 0);
+    }
   }
 
   private drawParticles() {
@@ -723,6 +728,7 @@ export class Stage {
     }
     if (!hidden) this.drawFeature(seg, i, zMid, zn);
     else this.drawDarkness(seg, near, zMid);
+    if (seg.gate && !seg.gateUsed && !hidden) this.drawGateway(this.cx - this.unit(zMid) * 0.72, this.floorY(zMid), this.unit(zMid), this.fog(zMid));
 
     // Bulkhead ring on the near edge. Out of a cavern, it becomes a tunnel mouth in a cliff.
     if (zn > NEAR) {
@@ -856,6 +862,35 @@ export class Stage {
     const zMid = (nearZ + zf) / 2;
     if (!hidden) this.drawFeature(seg, i, zMid, zn);
     else this.drawDarkness(seg, this.octagon(nearZ, 1.8), zMid);
+    if (seg.gate && !seg.gateUsed && !hidden) this.drawGateway(this.cx - this.unit(zMid) * 0.9, this.floorY(zMid), this.unit(zMid), this.fog(zMid));
+  }
+
+  /** A hidden gateway: a violet tear in the wall, turning slowly. Seen only with the Pineal Gate. */
+  private drawGateway(x: number, fy: number, u: number, fog: number) {
+    const rx = u * 0.2;
+    const ry = u * 0.4;
+    const cy = fy - ry * 1.05;
+    const main = this.ctx;
+    const glow = main.createRadialGradient(x, cy, 0, x, cy, ry * 1.4);
+    glow.addColorStop(0, `rgba(176,111,224,${0.85 * (1 - fog)})`);
+    glow.addColorStop(1, 'rgba(176,111,224,0)');
+    main.fillStyle = glow;
+    main.fillRect(x - ry * 1.4, cy - ry * 1.4, ry * 2.8, ry * 2.8);
+    this.outlined(x - rx * 1.3, cy - ry * 1.15, rx * 2.6, ry * 2.3, INK.signal, 1 - fog * 0.6, () => {
+      const { ctx } = this;
+      ctx.fillStyle = mix('#1a0f24', INK.void, fog);
+      ctx.beginPath();
+      ctx.ellipse(x, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      for (let k = 0; k < 4; k++) {
+        const t = this.time * (0.8 + k * 0.3) + k * 1.7;
+        ctx.strokeStyle = k % 2 ? `rgba(220,190,250,${0.8 * (1 - fog)})` : `rgba(176,111,224,${0.9 * (1 - fog)})`;
+        ctx.lineWidth = Math.max(1, u * 0.012);
+        ctx.beginPath();
+        ctx.ellipse(x, cy, rx * (0.9 - k * 0.18), ry * (0.9 - k * 0.18), Math.sin(t) * 0.2, t, t + Math.PI * 1.3);
+        ctx.stroke();
+      }
+    });
   }
 
   /** A rock mound with big crystals growing out of it. */

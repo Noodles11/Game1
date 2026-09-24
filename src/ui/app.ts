@@ -1,10 +1,10 @@
 import { GENES, cardDef, cardLevel, cardName, cardText, imprintTotal, needsTarget, splice, spliceCost } from '../core/cards';
 import { ENEMIES } from '../core/enemies';
-import { FORCE_COST, Game, MAX_OXYGEN, freshMeta, type GameEvent } from '../core/game';
+import { FORCE_COST, Game, RELIQUARY_PRICE, freshMeta, type GameEvent } from '../core/game';
 import type { CardInstance, DeckKind, EnemyState, MapNode, Meta } from '../core/types';
 import { BOONS, EVENTS, LOGS, MAP_ROWS, WORLDS, WORLD_ORDER } from '../core/worlds';
 import { PASSAGE_SPREAD, Stage, enemySlot, passageSlot } from '../render/stage';
-import { cardArt, cardArtDefs } from './cardart';
+import { cardArt, cardArtDefs, germArt } from './cardart';
 
 /** How long a card takes to print into the hand, and the gap between cards. */
 const PRINT_MS = 560;
@@ -64,7 +64,8 @@ const HINTS: Record<string, string> = {
   consume: 'Consume — removes a card from your deck for the rest of the run. Grief Engines remember every one.',
   imprint: 'Imprint — a permanent change this card earned in play. No limit. It stays for the whole run.',
   defect: 'Defect — a bad mutation from an Unstable effect. It stays, like any gene.',
-  boons: 'Boons — permanent. Earned by killing a world boss. They stay through death and every new clone.',
+  boons: 'Germline — permanent rewrites of your DNA, earned by killing a world boss. Every future clone is born with them. Ten to collect.',
+  gate: 'Gateway — a door in the wall only a Pineal Gate lets you see. Behind it: rare cards at a price, a rare fight, a restoring vat, or a shortcut.',
   'node-fight': 'Fight — a short corridor with regular enemies at the end.',
   'node-elite': 'Elite — one tough enemy. Rewards a card from this world, plus biomass.',
   'node-locker': 'Locker — supplies. Bring a Pry Bar.',
@@ -272,6 +273,12 @@ export class App {
       case 'event-opt': g.chooseEventOption(Number(el.dataset.i)); break;
       case 'event-leave': g.leaveEvent(); break;
       case 'boon': g.chooseBoon(el.dataset.boon!); break;
+      case 'gate': this.mapOpen = false; g.enterGate(); break;
+      case 'secret-take': g.secretTake(Number(el.dataset.i)); break;
+      case 'secret-vat': g.secretVat(); break;
+      case 'secret-fight': g.secretFightStart(); break;
+      case 'secret-skip': g.secretShortcut(); break;
+      case 'secret-leave': g.leaveSecret(); break;
       case 'skip-empower': g.skipEmpower(); break;
       case 'decks': this.sheet = 'decks'; break;
       case 'close': this.sheet = 'none'; break;
@@ -476,7 +483,7 @@ export class App {
     if (g.modifiers.integrity) mods.push('<span class="mod">+16 integrity</span>');
     if (g.modifiers.energy) mods.push('<span class="mod">+1 energy</span>');
     if (this.meta.boons.length) {
-      mods.push(`<span class="mod boon" data-hint="boons">◇ ${this.meta.boons.length} boon${this.meta.boons.length > 1 ? 's' : ''}</span>`);
+      mods.push(`<span class="mod boon" data-hint="boons">⧉ ${this.meta.boons.length}/10 germline</span>`);
     }
     const w = g.world ? WORLDS[g.world] : null;
     const where = w ? `${w.name} · depth ${g.depth} / ${MAP_ROWS}` : `lab · sector ${g.sectorNum} / 2`;
@@ -680,25 +687,27 @@ export class App {
       hand = g.sHand.length
         ? g.sHand.map((c) => this.cardHtml(c, { dim: !!g.surveyPlayable(c), print: this.printFor(c.uid) })).join('')
         : '<p class="empty">no survey cards in hand</p>';
-      const pips = Array.from({ length: MAX_OXYGEN }, (_, i) => `<i class="${i < g.oxygen ? 'on' : ''}"></i>`).join('');
+      const pips = Array.from({ length: g.maxOxygen }, (_, i) => `<i class="${i < g.oxygen ? 'on' : ''}"></i>`).join('');
       bar = `
         <div class="pips o2" data-hint="oxygen" aria-label="${g.oxygen} oxygen">${pips}<span>o₂</span></div>
         <button class="btn small" data-act="decks">decks</button>
         <button class="btn small cryo" data-act="map">${this.mapOpen ? 'close map' : 'map'}</button>
         <span class="spacer"></span>
-        ${this.mapOpen ? '' : '<span class="maphint">tap a passage ▲</span>'}`;
+        ${g.gateHere() && !this.mapOpen ? '<button class="btn gatebtn" data-act="gate" data-hint="gate" aria-label="gateway">⟁</button>' : ''}
+        ${this.mapOpen || g.gateHere() ? '' : '<span class="maphint">tap a passage ▲</span>'}`;
     } else if (g.phase === 'explore') {
       hand = g.sHand.length
         ? g.sHand.map((c) => this.cardHtml(c, { dim: !!g.surveyPlayable(c), print: this.printFor(c.uid) })).join('')
         : '<p class="empty">no survey cards in hand</p>';
       const blocked = g.blocker();
-      const pips = Array.from({ length: MAX_OXYGEN }, (_, i) => `<i class="${i < g.oxygen ? 'on' : ''}"></i>`).join('');
+      const pips = Array.from({ length: g.maxOxygen }, (_, i) => `<i class="${i < g.oxygen ? 'on' : ''}"></i>`).join('');
       bar = `
         <div class="pips o2" data-hint="oxygen" aria-label="${g.oxygen} oxygen">${pips}<span>o₂</span></div>
         <button class="btn small" data-act="decks">decks</button>
         ${g.world ? `<button class="btn small cryo" data-act="map">${this.mapOpen ? 'close' : 'map'}</button>` : ''}
         <span class="spacer"></span>
         ${g.canUsePod() ? '<button class="btn cryo" data-act="pod">splice</button>' : ''}
+        ${g.gateHere() ? '<button class="btn gatebtn" data-act="gate" data-hint="gate" aria-label="gateway">⟁</button>' : ''}
         ${blocked
           ? `<button class="btn primary danger" data-act="force">force −${FORCE_COST}</button>`
           : '<button class="btn primary" data-act="advance">advance ▲</button>'}`;
@@ -798,6 +807,8 @@ export class App {
       html = this.boonHtml();
     } else if (g.phase === 'event') {
       html = this.eventHtml();
+    } else if (g.phase === 'secret') {
+      html = this.secretHtml();
     } else if (g.phase === 'modifier') {
       full = true;
       html = this.modifierHtml();
@@ -824,6 +835,12 @@ export class App {
           <div class="grid">${g.combatDeck.map((c) => this.cardHtml(c, { act: 'none' })).join('')}</div>
           <h3>survey · ${g.surveyDeck.length}</h3>
           <div class="grid">${g.surveyDeck.map((c) => this.cardHtml(c, { act: 'none' })).join('')}</div>
+          <h3>germline · ${this.meta.boons.length} / ${Object.keys(BOONS).length}</h3>
+          <div class="germline">${Object.values(BOONS).map((b) => `
+            <div class="germ ${this.meta.boons.includes(b.id) ? 'on' : ''}">
+              <b>${this.meta.boons.includes(b.id) ? esc(b.name) : '— unsequenced —'}</b>
+              <small>${this.meta.boons.includes(b.id) ? esc(b.text) : 'Kill a world boss to rewrite it.'}</small>
+            </div>`).join('')}</div>
         </div>
         <div class="actions"><button class="btn small" data-act="how">how to play</button><button class="btn primary" data-act="close">close</button></div>`;
     } else if (g.phase === 'harvest') {
@@ -885,6 +902,48 @@ export class App {
       ${log}`;
   }
 
+  private secretHtml(): string {
+    const g = this.game;
+    const where = g.secret?.from === 'map' && g.world ? WORLDS[g.world].name : 'lab ship';
+    const leave = '<button class="btn" data-act="secret-leave">step back out</button>';
+    switch (g.secret?.kind) {
+      case 'reliquary': {
+        const cards = g.offers.map((o, i) =>
+          this.cardHtml({ uid: -1 - i, defId: o.defId, genes: [] }, { big: true, act: 'secret-take', extra: `data-i="${i}"` }));
+        return `
+          <div class="eyebrow">gateway · ${where} · reliquary</div>
+          <h2>the reliquary</h2>
+          <p>Prints the project never released, sealed in amber. The seal takes a price from whoever breaks it:
+          <b>−${RELIQUARY_PRICE} maximum integrity</b>, for the rest of this run.</p>
+          <div class="offers two">${cards.join('')}</div>
+          <div class="actions">${leave}</div>`;
+      }
+      case 'lair':
+        return `
+          <div class="eyebrow">gateway · ${where} · lair</div>
+          <h2>the hollow twin</h2>
+          <p>A print from the batch before yours, left behind a door nobody else could see. It has been practising your moves.
+          Kill it for sealed prints and a lot of biomass.</p>
+          <div class="actions">${leave}<button class="btn primary danger" data-act="secret-fight">wake it</button></div>`;
+      case 'vat':
+        return `
+          <div class="eyebrow">gateway · ${where} · vat room</div>
+          <h2>a warm vat</h2>
+          <p>Growth fluid, still circulating. Somebody kept this one running for you.</p>
+          <div class="actions">${leave}<button class="btn primary" data-act="secret-vat">float · restore integrity</button></div>`;
+      case 'shortcut':
+        return `
+          <div class="eyebrow">gateway · ${where} · fold</div>
+          <h2>a fold in the ship</h2>
+          <p>${g.secret.from === 'map'
+            ? 'The cave bends back on itself here. Step through and a whole stretch of it is behind you, unwalked.'
+            : 'Space is thin here. Step through and you come out in sector 2, past whatever sings at the end of this one.'}</p>
+          <div class="actions">${leave}<button class="btn primary" data-act="secret-skip">step through</button></div>`;
+      default:
+        return '';
+    }
+  }
+
   private boonHtml(): string {
     const g = this.game;
     const w = WORLDS[g.world!];
@@ -892,18 +951,18 @@ export class App {
       const b = BOONS[id];
       return `
         <button class="card big mod boon" data-act="boon" data-boon="${id}">
-          <span class="glyph" aria-hidden="true">${b.glyph}</span>
+          ${germArt(id, b.glyph)}
           <span class="name">${b.name}</span>
           <span class="text">${b.text}</span>
           <span class="flavor">${b.flavor}</span>
         </button>`;
     });
     return `
-      <div class="eyebrow">${w.name} is silent · permanent</div>
-      <h2>something stays with you</h2>
-      <p>This one is not for this run. It is written into the printer itself: every clone after you is born with it.
-      Choose one.</p>
-      <div class="offers two">${cards.join('')}</div>`;
+      <div class="eyebrow">${w.name} is silent · germline ${this.meta.boons.length + 1} / ${Object.keys(BOONS).length}</div>
+      <h2>rewrite the germline</h2>
+      <p>The boss's lattice opens your sequence like a book. One line can be rewritten, and it is written into the printer
+      itself: every clone after you is born with it. Choose one.</p>
+      <div class="offers">${cards.join('')}</div>`;
   }
 
   private endingHtml(): string {

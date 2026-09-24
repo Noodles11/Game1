@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { GENES, cardName, cardStats, cardText, genesFor, splice, spliceCost } from '../src/core/cards';
 import { FORCE_COST, Game, MAX_ENERGY, freshMeta } from '../src/core/game';
 import type { CardInstance, Segment } from '../src/core/types';
-import { MAP_ROWS, WORLDS, generateMap } from '../src/core/worlds';
+import { GERMLINE, MAP_ROWS, generateMap } from '../src/core/worlds';
 import { Rng } from '../src/core/rng';
 
 const card = (defId: string, genes: string[] = []): CardInstance => ({ uid: 999, defId, genes });
@@ -643,7 +643,7 @@ describe('worlds: Kessra mechanics and cards', () => {
 });
 
 describe('worlds: boons', () => {
-  it('killing the boss offers 2 permanent boons; the pick persists in meta', () => {
+  it('killing the boss offers 3 germline genes you lack; the pick persists in meta', () => {
     const meta = freshMeta();
     const g = new Game(4, 1, meta);
     fightIn(g, ['prism']);
@@ -659,10 +659,12 @@ describe('worlds: boons', () => {
     g.phase = 'reward';
     g.takeOffer(null);
     expect(g.phase).toBe('boon');
-    expect(g.boonOffers).toEqual(WORLDS.kessra.boons);
-    g.chooseBoon('crystal-bones');
+    expect(g.boonOffers.length).toBe(3);
+    expect(new Set(g.boonOffers).size).toBe(3);
+    const pick = g.boonOffers[0];
+    g.chooseBoon(pick);
     expect(g.phase).toBe('won');
-    expect(meta.boons).toEqual(['crystal-bones']);
+    expect(meta.boons).toEqual([pick]);
     expect(meta.worldsCleared).toEqual(['kessra']);
   });
 
@@ -955,5 +957,157 @@ describe('copying reads the printed card', () => {
     g.playCombat(can.uid, c.enemies[0].uid);
     g.pickCard(hook.uid);
     expect(can.imprint).toEqual({ damage: 13, block: 2, tag: 1 });
+  });
+});
+
+describe('germline genes', () => {
+  const withGenes = (...ids: string[]) => {
+    const meta = freshMeta();
+    meta.boons.push(...ids);
+    return meta;
+  };
+
+  it('there are 10 to collect, and a boss never offers one you have', () => {
+    expect(GERMLINE.length).toBe(10);
+    const meta = withGenes(...GERMLINE.slice(0, 8));
+    const g = new Game(4, 1, meta);
+    g.world = 'kessra';
+    (g as unknown as { finishWorld(): void }).finishWorld();
+    expect(g.boonOffers.sort()).toEqual(GERMLINE.slice(8).sort());
+  });
+
+  it('Mitochondrial Surplus: +1 energy every turn; Spare Cell: 2 extra cards on turn one', () => {
+    const g = new Game(4, 1, withGenes('surplus', 'sparecell'));
+    fightIn(g, ['crawler'], null);
+    expect(g.combat!.energyCap).toBe(MAX_ENERGY + 1);
+    expect(g.combat!.hand.length).toBe(7);
+  });
+
+  it('Deep Lungs and Dense Marrow raise oxygen and integrity from the first step', () => {
+    const g = new Game(4, 1, withGenes('lungs', 'marrow'));
+    expect(g.maxOxygen).toBe(4);
+    expect(g.oxygen).toBe(4);
+    expect(g.maxHp).toBe(52);
+    expect(g.hp).toBe(52);
+  });
+
+  it('Carrion Gut heals 50% more from eaten biomass', () => {
+    const g = new Game(4, 1, withGenes('carrion'));
+    g.hp = 10;
+    g.phase = 'harvest';
+    g.corpses = [{ uid: 1, defId: 'tick', biomass: 4, tagged: false, taken: false }];
+    g.consume(1);
+    expect(g.hp).toBe(16);
+  });
+
+  it('Second Heart saves you once per run', () => {
+    const g = new Game(4, 1, withGenes('heart'));
+    fightIn(g, ['crawler'], null);
+    const hit = (n: number) => (g as unknown as { damagePlayer(a: number): void }).damagePlayer(n);
+    hit(999);
+    expect(g.isDead).toBe(false);
+    expect(g.hp).toBe(Math.ceil(g.maxHp * 0.3));
+    hit(999);
+    expect(g.isDead).toBe(true);
+  });
+
+  it('Heirloom Print carries the most-imprinted tactic into the next clone', () => {
+    const meta = withGenes('heirloom');
+    const g = new Game(4, 1, meta);
+    const blade: CardInstance = { uid: 8000, defId: 'feeding', genes: ['serrated'], imprint: { damage: 10 }, mem: { imprints: 5 } };
+    g.combatDeck.push(blade);
+    fightIn(g, ['crawler'], null);
+    (g as unknown as { damagePlayer(a: number): void }).damagePlayer(999);
+    expect(g.isDead).toBe(true);
+    const next = new Game(5, 2, meta);
+    const heir = next.combatDeck.find((c) => c.defId === 'feeding')!;
+    expect(heir.genes).toEqual(['serrated']);
+    expect(cardStats(heir).damage).toBe(18);
+  });
+
+  it('without Pineal Gate there are no gateways; with it, each lab sector hides one', () => {
+    expect(new Game(4).segments.some((s) => s.gate)).toBe(false);
+    const g = new Game(4, 1, withGenes('gatesight'));
+    const gates = g.segments.map((s, i) => (s.gate ? i : -1)).filter((i) => i >= 0);
+    expect(gates.length).toBe(2);
+    expect(gates[0]).toBeLessThan(g.sector2Start);
+    expect(gates[1]).toBeGreaterThanOrEqual(g.sector2Start);
+  });
+
+  /** Put the player on a fresh gateway of the given kind in the lab. */
+  function atGate(kind: 'reliquary' | 'lair' | 'vat' | 'shortcut') {
+    const g = new Game(4, 1, withGenes('gatesight'));
+    g.segments[0].gate = kind;
+    g.segments[0].gateUsed = false;
+    expect(g.enterGate()).toBe(true);
+    expect(g.phase).toBe('secret');
+    return g;
+  }
+
+  it('Vat room restores integrity and returns you to the corridor', () => {
+    const g = atGate('vat');
+    g.hp = 5;
+    g.secretVat();
+    expect(g.hp).toBe(g.maxHp);
+    expect(g.phase).toBe('explore');
+    expect(g.gateHere()).toBeNull();
+  });
+
+  it('Reliquary: a secret card for 8 maximum integrity', () => {
+    const g = atGate('reliquary');
+    expect(g.offers.length).toBe(2);
+    const id = g.offers[0].defId;
+    g.secretTake(0);
+    expect(g.maxHp).toBe(42 - 8);
+    expect(g.combatDeck.some((c) => c.defId === id)).toBe(true);
+    expect(g.phase).toBe('explore');
+  });
+
+  it('Lair: the Hollow Twin fight pays in secret cards and biomass, then back to the corridor', () => {
+    const g = atGate('lair');
+    g.secretFightStart();
+    expect(g.phase).toBe('combat');
+    expect(g.livingEnemies()[0].defId).toBe('hollow');
+    g.livingEnemies()[0].hp = 1;
+    const c: CardInstance = { uid: 8100, defId: 'scalpel', genes: [] };
+    g.combat!.hand = [c];
+    g.combat!.energy = 3;
+    g.playCombat(c.uid, g.livingEnemies()[0].uid);
+    expect(g.phase).toBe('harvest');
+    const bio = g.biomass;
+    g.finishHarvest();
+    expect(g.biomass).toBe(bio + 10);
+    expect(g.offers.filter((o) => ['apex', 'lazarus', 'overwrite'].includes(o.defId)).length).toBeGreaterThanOrEqual(2);
+    g.takeOffer(0);
+    expect(g.phase).toBe('explore');
+    expect(g.pos).toBe(0);
+  });
+
+  it('Shortcut folds the lab straight to sector 2', () => {
+    const g = atGate('shortcut');
+    g.secretShortcut();
+    expect(g.phase).toBe('explore');
+    expect(g.pos).toBe(g.sector2Start);
+  });
+
+  it('on a world map, Pineal Gate adds gateways at some junctions; a shortcut skips a row', () => {
+    const g = new Game(3, 1, withGenes('gatesight'));
+    g.phase = 'mainframe';
+    g.chooseWorld('kessra');
+    expect(Object.keys(g.mapGates).length).toBeGreaterThan(0);
+    g.mapGates[0] = { kind: 'shortcut', used: false };
+    expect(g.gateHere()).toBe('shortcut');
+    g.enterGate();
+    g.secretShortcut();
+    expect(g.phase).toBe('map');
+    expect(g.depth).toBe(1);
+  });
+
+  it('gateway state survives a save', () => {
+    const g = atGate('reliquary');
+    const r = Game.load(g.serialize())!;
+    expect(r.phase).toBe('secret');
+    expect(r.secret?.kind).toBe('reliquary');
+    expect(r.offers.length).toBe(2);
   });
 });
