@@ -55,6 +55,23 @@ const BIOMES: Record<string, Biome> = {
   },
 };
 
+/** How wide the junction wall's openings spread, as a fraction of the stage width. */
+export const PASSAGE_SPREAD = 0.56;
+
+/** Horizontal centre (0..1) of passage i of n at a junction. Shared with the DOM overlay. */
+export function passageSlot(i: number, n: number): number {
+  return 0.5 + ((i + 0.5) / n - 0.5) * PASSAGE_SPREAD;
+}
+
+/** Glow colour for what lies down a passage. */
+const KIND_COLOR: Record<string, string> = {
+  fight: INK.flesh, elite: '#e0606c', locker: INK.sodium, pod: INK.cryo,
+  event: INK.signal, boss: '#bfeef5', hidden: '#5b6a72',
+};
+const KIND_GLYPH: Record<string, string> = {
+  fight: '✕', elite: '✖', locker: '▣', pod: '◍', event: '✦', boss: '◉', hidden: '?',
+};
+
 /** Horizontal slot (0..1) for enemy i of n. Shared with the DOM overlay. */
 export function enemySlot(i: number, n: number): number {
   return (i + 1) / (n + 1);
@@ -297,15 +314,110 @@ export class Stage {
       ctx.translate(-this.cx, -this.cy);
     }
 
-    const first = Math.max(0, Math.floor(this.cam) - 1);
-    const lastSeg = Math.min(g.segments.length - 1, Math.floor(this.cam) + DRAW_AHEAD);
-    for (let i = lastSeg; i >= first; i--) this.drawSection(i);
+    if (g.phase === 'map') {
+      this.drawJunction();
+    } else {
+      const first = Math.max(0, Math.floor(this.cam) - 1);
+      const lastSeg = Math.min(g.segments.length - 1, Math.floor(this.cam) + DRAW_AHEAD);
+      for (let i = lastSeg; i >= first; i--) this.drawSection(i);
+    }
 
     const inFight = g.phase === 'combat' || g.phase === 'harvest';
     if (inFight) this.drawFight();
     this.drawParticles();
     ctx.restore();
     this.drawOverlays(inFight);
+  }
+
+  /** A fork in the tunnel: a wall with one opening per path ahead. */
+  private drawJunction() {
+    const { ctx } = this;
+    const g = this.game;
+    const bio = this.biome;
+    const nearZ = 0.9;
+    const farZ = 1.6;
+    const near = this.octagon(nearZ);
+    const far = this.octagon(farZ);
+    const fog = this.fog(1.25);
+    for (let k = 0; k < 8; k++) {
+      ctx.fillStyle = mix(mix(bio.faces[k], bio.lamp, 0.05), INK.void, fog);
+      fillPoly(ctx, [near[k], near[(k + 1) % 8], far[(k + 1) % 8], far[k]]);
+    }
+    ctx.strokeStyle = INK.bone;
+    ctx.lineWidth = Math.max(0.8, this.unit(nearZ) * 0.006);
+    ctx.globalAlpha = 0.5;
+    for (let k = 0; k < 8; k++) sketchStroke(ctx, [near[k], far[k]], 900 + k + this.boil, 1.2);
+    ctx.globalAlpha = 1;
+    if (bio.crystals) this.drawCrystals(97, nearZ, farZ, fog);
+
+    // The back wall.
+    ctx.fillStyle = mix(bio.ring[1], INK.void, 0.2);
+    fillPoly(ctx, far);
+    ctx.globalAlpha = 0.8;
+    sketchStroke(ctx, far, 950 + this.boil, 1.5, true);
+    ctx.globalAlpha = 1;
+
+    const paths = g.passages();
+    const n = paths.length;
+    const u = this.unit(farZ);
+    const fy = this.floorY(farZ);
+    const aw = (this.W * PASSAGE_SPREAD / n) * 0.62;
+    const ah = u * 1.25;
+    paths.forEach((node, i) => {
+      const x = passageSlot(i, n) * this.W;
+      const kind = node.hidden && !node.visited ? 'hidden' : node.kind;
+      const col = KIND_COLOR[kind];
+      const mouth = (scale: number, drop: number): Pt[] => {
+        const w = aw * scale;
+        const h = ah * scale;
+        const base = fy - drop;
+        const pts: Pt[] = [[x - w / 2, base]];
+        for (let a = 0; a <= 10; a++) {
+          const t = Math.PI + (a / 10) * Math.PI;
+          pts.push([x + Math.cos(t) * w / 2, base - h * 0.55 + Math.sin(t) * h * 0.45]);
+        }
+        pts.push([x + w / 2, base]);
+        return pts;
+      };
+      // receding tunnel: nested mouths, darker as they go
+      const layers = 5;
+      for (let l = 0; l < layers; l++) {
+        const sc = 1 - l * 0.17;
+        const drop = ah * 0.22 * (l / layers);
+        ctx.fillStyle = mix('#0e1318', '#020304', l / layers);
+        fillPoly(ctx, mouth(sc, drop));
+      }
+      // what waits at the end glows faintly
+      const gy = fy - ah * 0.45;
+      const pulse = 0.6 + 0.4 * Math.sin(this.time * 2 + i * 1.7);
+      const grd = ctx.createRadialGradient(x, gy, 0, x, gy, aw * 0.5);
+      grd.addColorStop(0, col);
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = 0.35 * pulse;
+      ctx.fillStyle = grd;
+      ctx.fillRect(x - aw / 2, gy - aw / 2, aw, aw);
+      ctx.globalAlpha = 1;
+      // rim
+      ctx.strokeStyle = INK.bone;
+      ctx.lineWidth = Math.max(1, u * 0.012);
+      sketchStroke(ctx, mouth(1, 0), 970 + i * 13 + this.boil, 1.6, false);
+      // sign above the mouth
+      const sy = fy - ah - u * 0.16;
+      const r = Math.max(9, u * 0.1);
+      ctx.fillStyle = '#0b0f13';
+      ctx.beginPath();
+      ctx.arc(x, sy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.font = `600 ${Math.round(r * 1.1)}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(KIND_GLYPH[kind], x, sy + 1);
+    });
+    this.drawRing(96, nearZ, this.lampOn(96), false);
   }
 
   private drawParticles() {

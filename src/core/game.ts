@@ -520,7 +520,7 @@ export class Game {
   private enterMap() {
     this.phase = 'map';
     this.newSurveyTurn();
-    this.message = 'Choose your path. Echo Scan and Flare work on the map too.';
+    this.message = 'The tunnel forks. Choose a passage. Echo Scan and Flare show what waits down them.';
   }
 
   get currentNode(): MapNode | null {
@@ -540,6 +540,11 @@ export class Game {
     const here = this.currentNode;
     if (!here) return this.map.nodes.filter((n) => n.row === 0);
     return here.next.map((id) => this.map!.nodes[id]);
+  }
+
+  /** The ways forward at a junction, left to right. */
+  passages(): MapNode[] {
+    return [...this.reachable()].sort((a, b) => a.col - b.col);
   }
 
   /** Nodes up to `rows` rows ahead of the player. */

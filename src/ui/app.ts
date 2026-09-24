@@ -3,7 +3,7 @@ import { ENEMIES } from '../core/enemies';
 import { FORCE_COST, Game, MAX_OXYGEN, freshMeta, type GameEvent } from '../core/game';
 import type { CardInstance, DeckKind, EnemyState, MapNode, Meta } from '../core/types';
 import { BOONS, EVENTS, LOGS, MAP_ROWS, WORLDS, WORLD_ORDER } from '../core/worlds';
-import { Stage, enemySlot } from '../render/stage';
+import { PASSAGE_SPREAD, Stage, enemySlot, passageSlot } from '../render/stage';
 
 const CLONE_KEY = 'reprint.clone';
 const INTRO_KEY = 'reprint.introSeen';
@@ -60,7 +60,7 @@ const HINTS: Record<string, string> = {
   'node-pod': 'Splice pod — spend biomass to evolve your cards.',
   'node-event': 'Event — something strange. A choice, and a log that stays with you forever.',
   'node-boss': 'Boss — the heart of this world. Beat it for a permanent boon.',
-  'node-hidden': 'Unknown — play Echo Scan to see what waits here.',
+  'node-hidden': 'Unknown — play Echo Scan to see what waits down this passage.',
 };
 
 const NODE_GLYPH: Record<string, string> = {
@@ -98,6 +98,8 @@ export class App {
   private hintEl: HTMLElement;
   private mapEl: HTMLElement;
   private meta: Meta;
+  /** The node map is a view-only overlay, opened on demand. */
+  private mapOpen = false;
 
   constructor(root: HTMLElement) {
     root.innerHTML = `
@@ -237,7 +239,8 @@ export class App {
       case 'mod': g.chooseModifier(el.dataset.mod as 'biomass' | 'integrity' | 'energy'); break;
       case 'empower': g.empowerTarget(uid); break;
       case 'world': g.chooseWorld(el.dataset.world!); break;
-      case 'node': this.selected = null; g.travel(Number(el.dataset.node)); break;
+      case 'passage': this.selected = null; this.mapOpen = false; g.travel(Number(el.dataset.node)); break;
+      case 'map': this.mapOpen = !this.mapOpen; break;
       case 'event-opt': g.chooseEventOption(Number(el.dataset.i)); break;
       case 'event-leave': g.leaveEvent(); break;
       case 'boon': g.chooseBoon(el.dataset.boon!); break;
@@ -308,6 +311,7 @@ export class App {
     this.stage.setGame(this.game);
     this.selected = null;
     this.sheet = 'none';
+    this.mapOpen = false;
     this.flush();
     this.render();
   }
@@ -464,8 +468,14 @@ export class App {
   private renderOverlay() {
     const g = this.game;
     this.overlay.parentElement!.classList.toggle('fight', g.phase === 'combat' || g.phase === 'harvest');
-    this.mapEl.hidden = g.phase !== 'map';
-    this.mapEl.innerHTML = g.phase === 'map' ? this.mapHtml() : '';
+    const showMap = this.mapOpen && !!g.map && (g.phase === 'map' || g.phase === 'explore');
+    this.mapEl.hidden = !showMap;
+    this.mapEl.innerHTML = showMap ? this.mapHtml() : '';
+    if (g.phase === 'map') {
+      this.overlay.classList.remove('crowd');
+      this.overlay.innerHTML = this.passagesHtml();
+      return;
+    }
     if (g.phase !== 'combat' || !g.combat) {
       this.overlay.innerHTML = '';
       return;
@@ -506,13 +516,33 @@ export class App {
       const cls = ['mnode', kind, reach.has(n.id) ? 'reach' : '', n.visited ? 'visited' : '', g.mapNode === n.id ? 'here' : '', n.flared ? 'flared' : '']
         .filter(Boolean).join(' ');
       const label = hidden ? 'Unknown' : NODE_NAME[n.kind];
-      return `<button class="${cls}" data-act="node" data-node="${n.id}" data-hint="node-${kind}"
-        style="left:${p.x}%;top:${p.y}%" ${reach.has(n.id) ? '' : 'aria-disabled="true"'} aria-label="${label}">${hidden ? '?' : NODE_GLYPH[n.kind]}</button>`;
+      return `<span class="${cls}" data-hint="node-${kind}" role="img"
+        style="left:${p.x}%;top:${p.y}%" aria-label="${label}">${hidden ? '?' : NODE_GLYPH[n.kind]}</span>`;
     }).join('');
     return `
       <div class="maptitle"><b>${w.name}</b> ${w.subtitle}</div>
+      <button class="btn small mapclose" data-act="map">close map</button>
       <svg class="mapedges" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${lines.join('')}</svg>
       ${nodes}`;
+  }
+
+  /** Tappable tunnel mouths at a junction, lined up with the ones the stage draws. */
+  private passagesHtml(): string {
+    const paths = this.game.passages();
+    const n = paths.length;
+    const dirs = n === 1 ? ['ahead'] : n === 2 ? ['left', 'right'] : n === 3 ? ['left', 'middle', 'right'] : ['far left', 'left', 'right', 'far right'];
+    const width = (PASSAGE_SPREAD / n) * 100;
+    return paths.map((node, i) => {
+      const hidden = node.hidden && !node.visited;
+      const kind = hidden ? 'hidden' : node.kind;
+      const name = hidden ? 'Unknown' : NODE_NAME[node.kind];
+      return `
+        <button class="passage ${kind} ${node.flared ? 'flared' : ''}" data-act="passage" data-node="${node.id}"
+          style="left:${passageSlot(i, n) * 100}%;width:${width}%" aria-label="${dirs[i]}: ${name}">
+          <span class="pdir">${dirs[i]}</span>
+          <span class="pname" data-hint="node-${kind}">${name}</span>
+        </button>`;
+    }).join('');
   }
 
   private foeHtml(e: EnemyState, x: number, width: number, targeting: boolean): string {
@@ -588,8 +618,9 @@ export class App {
       bar = `
         <div class="pips o2" data-hint="oxygen" aria-label="${g.oxygen} oxygen">${pips}<span>o₂</span></div>
         <button class="btn small" data-act="decks">decks</button>
+        <button class="btn small cryo" data-act="map">${this.mapOpen ? 'close map' : 'map'}</button>
         <span class="spacer"></span>
-        <span class="maphint">tap a glowing node ▲</span>`;
+        ${this.mapOpen ? '' : '<span class="maphint">tap a passage ▲</span>'}`;
     } else if (g.phase === 'explore') {
       hand = g.sHand.length
         ? g.sHand.map((c) => this.cardHtml(c, { dim: !!g.surveyPlayable(c) })).join('')
@@ -599,6 +630,7 @@ export class App {
       bar = `
         <div class="pips o2" data-hint="oxygen" aria-label="${g.oxygen} oxygen">${pips}<span>o₂</span></div>
         <button class="btn small" data-act="decks">decks</button>
+        ${g.world ? `<button class="btn small cryo" data-act="map">${this.mapOpen ? 'close' : 'map'}</button>` : ''}
         <span class="spacer"></span>
         ${g.canUsePod() ? '<button class="btn cryo" data-act="pod">splice</button>' : ''}
         ${blocked

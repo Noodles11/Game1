@@ -446,6 +446,20 @@ describe('worlds: map', () => {
     }
   });
 
+  it('junctions offer 1-3 passages, ordered left to right', () => {
+    for (let seed = 1; seed <= 50; seed++) {
+      const map = generateMap(new Rng(seed), 'kessra');
+      for (const n of map.nodes) expect(n.next.length).toBeLessThanOrEqual(3);
+    }
+    const g = new Game(3);
+    g.phase = 'mainframe';
+    g.chooseWorld('kessra');
+    const cols = g.passages().map((n) => n.col);
+    expect(cols).toEqual([...cols].sort((a, b) => a - b));
+    expect(cols.length).toBeGreaterThanOrEqual(1);
+    expect(cols.length).toBeLessThanOrEqual(3);
+  });
+
   it('The First opens the mainframe; picking Kessra lands you on its map', () => {
     const g = new Game(3);
     g.phase = 'mainframe';

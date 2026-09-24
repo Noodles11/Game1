@@ -48,6 +48,7 @@ Slay-the-Spire-style, portrait, scrolls up.
 | Rows | 7 plus a boss node |
 | Width | 2–4 nodes per row, 2–3 branching paths |
 | Node → play | Each node opens a **short corridor** (1–3 segments) in the existing layered renderer |
+| Choosing | **In first person.** The tunnel forks into 1–3 passages (left / middle / right), each signed with what lies down it. The node tree is a view-only map you open with the *map* button. |
 | Hidden nodes | Some nodes show `?` until revealed |
 
 **Node types**
@@ -229,6 +230,8 @@ Recommendation: build M1 → M2 first. That proves the whole loop end to end wit
 ## 10. What shipped in M1 + M2, and where it differs from the plan
 
 - **Mainframe** after The First; Mireth and Orun are shown as "signal lost" until M3/M4.
+- **Junctions, not a clickable tree:** you pick your path at a fork in the tunnel. The tree is only a
+  "where am I" map. No fork ever has more than 3 passages.
 - **Node map:** 7 rows of 2–4 nodes plus the boss, always fully connected; row 3 always has a pod,
   every map has at least one elite. Some nodes are hidden (`?`). *Echo Scan* reveals the next 2 rows,
   *Flare* makes the next row's enemies start Exposed. The *Override shortcut* idea was dropped for now.

@@ -1408,3 +1408,71 @@ button:focus-visible {
   aspect-ratio: auto;
   min-height: 190px;
 }
+
+/* ------------------------------------------------------------ junction */
+
+.passage {
+  --c: var(--bone-dim);
+  position: absolute;
+  top: 24%;
+  bottom: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  pointer-events: auto;
+  font-family: var(--mono);
+  text-transform: uppercase;
+}
+
+.passage.fight { --c: var(--flesh); }
+.passage.elite { --c: #e0606c; }
+.passage.locker { --c: var(--sodium); }
+.passage.pod { --c: var(--cryo); }
+.passage.event { --c: var(--signal); }
+.passage.boss { --c: #bfeef5; }
+.passage.hidden { --c: #7d8a91; }
+
+.passage .pdir {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  color: var(--bone-dim);
+  text-shadow: 0 1px 4px #000;
+}
+
+.passage .pname {
+  padding: 3px 8px;
+  border: 1px solid var(--c);
+  background: rgba(8, 11, 14, 0.85);
+  color: var(--c);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  text-shadow: 0 0 6px color-mix(in srgb, var(--c) 60%, transparent);
+}
+
+.passage.flared .pname::after {
+  content: ' · lit';
+  color: var(--flesh);
+}
+
+.passage:active .pname {
+  background: color-mix(in srgb, var(--c) 25%, #080b0e);
+}
+
+.mapclose {
+  position: absolute;
+  top: 6px;
+  right: var(--gutter);
+  z-index: 3;
+  background: rgba(10, 17, 22, 0.9);
+}
+
+span.mnode {
+  cursor: default;
+}

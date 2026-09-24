@@ -232,7 +232,9 @@ export function generateMap(rng: Rng, world: string): WorldMap {
       if (n.next.length === 0) n.next.push(nearest(next, n.col).id);
     }
     for (const m of next) {
-      if (!here.some((n) => n.next.includes(m.id))) nearest(here, m.col).next.push(m.id);
+      if (here.some((n) => n.next.includes(m.id))) continue;
+      const roomy = here.filter((n) => n.next.length < 3);
+      nearest(roomy.length ? roomy : here, m.col).next.push(m.id);
     }
   }
   for (const n of rows[MAP_ROWS - 1]) n.next.push(boss.id);
