@@ -12,6 +12,8 @@ interface EnemyFx {
   lunge: number;
   dead: number;
   dying: boolean;
+  /** Burst into particles; no longer drawn. */
+  popped: boolean;
 }
 
 interface Particle {
@@ -104,6 +106,8 @@ export class Stage {
   private enemyFx = new Map<number, EnemyFx>();
   private enemyPos = new Map<number, { x: number; y: number }>();
   private particles: Particle[] = [];
+  /** Shockwave rings from bursting enemies. */
+  private rings: { x: number; y: number; r: number; max: number; life: number }[] = [];
   private lowHp = 0;
   private last = 0;
   private time = 0;
@@ -137,7 +141,7 @@ export class Stage {
   private fx(uid: number): EnemyFx {
     let f = this.enemyFx.get(uid);
     if (!f) {
-      f = { flash: 0, lunge: 0, dead: 0, dying: false };
+      f = { flash: 0, lunge: 0, dead: 0, dying: false, popped: false };
       this.enemyFx.set(uid, f);
     }
     return f;
@@ -161,8 +165,6 @@ export class Stage {
       }
       case 'enemyDie': {
         this.fx(e.uid).dying = true;
-        const p = this.enemyPos.get(e.uid);
-        if (p) this.splatter(p.x, p.y, INK.flesh, 22);
         break;
       }
       case 'enemyAct': this.fx(e.uid).lunge = 1; break;
@@ -205,6 +207,47 @@ export class Stage {
     }
   }
 
+  /** A dead enemy bursts: gore, glowing motes, a shockwave ring and a flash. */
+  private burst(x: number, y: number, r: number) {
+    this.shake = Math.max(this.shake, 0.5);
+    this.rings.push({ x, y, r: r * 0.2, max: r * 0.9, life: 0 });
+    if (this.reduced) return;
+    for (let i = 0; i < 34; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const speed = 80 + Math.random() * 260;
+      const chunk = i < 10;
+      this.particles.push({
+        x: x + Math.cos(a) * r * 0.1, y: y + Math.sin(a) * r * 0.1,
+        vx: Math.cos(a) * speed, vy: Math.sin(a) * speed - 80,
+        life: 0, maxLife: 0.5 + Math.random() * 0.6, size: chunk ? 3 + Math.random() * 4 : 1.5 + Math.random() * 2.5,
+        color: chunk ? INK.flesh : i % 2 ? INK.bone : `rgb(${this.biome.glow})`, grav: chunk ? 520 : 220, fade: 1,
+      });
+    }
+    this.sparks(x, y, `rgb(${this.biome.glow})`, 12, true);
+  }
+
+  /** What is left after the burst: a pulsing smear of biomass to harvest. */
+  private drawRemains(x: number, footY: number, u: number, i: number) {
+    const { ctx } = this;
+    const w = u * 0.32;
+    const pulse = 0.6 + 0.4 * Math.sin(this.time * 2.4 + i * 1.9);
+    const g = ctx.createRadialGradient(x, footY - w * 0.1, 0, x, footY - w * 0.1, w * 1.2);
+    g.addColorStop(0, `rgba(185,80,90,${0.35 * pulse})`);
+    g.addColorStop(1, 'rgba(185,80,90,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - w * 1.2, footY - w * 1.3, w * 2.4, w * 2.4);
+    ctx.fillStyle = mix(INK.flesh, INK.void, 0.35);
+    ctx.beginPath();
+    ctx.ellipse(x, footY - w * 0.05, w, w * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = INK.flesh;
+    for (let k = 0; k < 5; k++) {
+      ctx.beginPath();
+      ctx.arc(x + noise(i * 7 + k) * w * 0.8, footY - w * 0.12 - Math.abs(noise(i + k * 3)) * w * 0.12, w * (0.06 + Math.abs(noise(k + i * 2)) * 0.07), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   private sparks(x: number, y: number, color: string, n: number, rise = false) {
     if (this.reduced) return;
     for (let i = 0; i < n; i++) {
@@ -244,10 +287,12 @@ export class Stage {
     for (const f of this.enemyFx.values()) {
       f.flash = decay(f.flash, 5);
       f.lunge = decay(f.lunge, 3);
-      if (f.dying) f.dead = Math.min(1, f.dead + dt * 2);
+      if (f.dying) f.dead = Math.min(1, f.dead + dt * (this.reduced ? 10 : 4.5));
     }
     const critical = this.game.hp > 0 && this.game.hp / this.game.maxHp < 0.25;
     this.lowHp += ((critical ? 1 : 0) - this.lowHp) * Math.min(1, dt * 3);
+    for (const r of this.rings) r.life += dt;
+    this.rings = this.rings.filter((r) => r.life < 0.35);
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.life += dt;
@@ -467,6 +512,23 @@ export class Stage {
 
   private drawParticles() {
     const { ctx } = this;
+    for (const r of this.rings) {
+      const t = r.life / 0.35;
+      const rad = r.r + (r.max - r.r) * (1 - Math.pow(1 - t, 3));
+      // white core flash, then a glowing ring
+      if (t < 0.4) {
+        const g = ctx.createRadialGradient(r.x, r.y, 0, r.x, r.y, rad);
+        g.addColorStop(0, `rgba(255,255,255,${0.8 * (1 - t / 0.4)})`);
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g;
+        ctx.fillRect(r.x - rad, r.y - rad, rad * 2, rad * 2);
+      }
+      ctx.strokeStyle = `rgba(${this.biome.glow},${1 - t})`;
+      ctx.lineWidth = 3 * (1 - t) + 1;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, rad, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     for (const p of this.particles) {
       const t = p.life / p.maxLife;
       const alpha = (1 - t) * p.fade;
@@ -1431,12 +1493,32 @@ export class Stage {
       const base = Math.min(this.H * 0.5, (this.W / (n + 0.6)) * 0.95);
       const u = base * (n === 1 ? 1 : 0.95) * Math.min(1.2, 0.75 + size * 0.25);
       const fx = this.fx(e.uid);
-      if (!e.alive) fx.dying = true;
-      this.enemyPos.set(e.uid, { x, y: this.H * 0.94 - u * size * 0.55 });
+      const cy = this.H * 0.94 - u * size * 0.55;
+      this.enemyPos.set(e.uid, { x, y: cy });
+      if (!e.alive && !fx.dying) {
+        // already dead when first seen (a loaded save): skip the burst
+        fx.dying = fx.popped = true;
+        fx.dead = 1;
+      }
+      if (fx.dead >= 1 && !fx.popped) {
+        fx.popped = true;
+        this.burst(x, cy, u * size);
+      }
+      if (fx.popped) {
+        this.drawRemains(x, this.H * 0.94, u, i);
+        return;
+      }
       drawCreature(ctx, e.defId, x, this.H * 0.94, u, {
         t: this.time + i * 1.3, boil: this.boil, flash: fx.flash, lunge: fx.lunge, dead: fx.dead, seed: i + 1, dim: 0,
       });
     });
+    // enemies removed before their burst played (a splitter makes room for its halves): burst now
+    for (const [uid, fx] of this.enemyFx) {
+      if (!fx.dying || fx.popped || list.some((e) => e.uid === uid)) continue;
+      fx.popped = true;
+      const p = this.enemyPos.get(uid);
+      if (p) this.burst(p.x, p.y, this.W * 0.25);
+    }
   }
 
   private drawOverlays(inFight: boolean) {

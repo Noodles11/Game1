@@ -6,7 +6,7 @@ export interface CreatureFx {
   boil: number; // line-boil seed offset
   flash: number; // 0..1 hit flash
   lunge: number; // 0..1 attack lunge
-  dead: number; // 0 alive .. 1 fully collapsed
+  dead: number; // 0 alive .. 1 swollen, about to burst
   seed: number;
   dim: number; // 0 fully lit .. 1 lost in fog
 }
@@ -36,13 +36,15 @@ export function drawCreature(
   ctx.save();
   const lungeScale = 1 + fx.lunge * 0.16;
   ctx.translate(x + (fx.flash > 0 ? noise(fx.t * 90) * fx.flash * u * 0.05 : 0), footY + fx.lunge * u * 0.1);
-  ctx.scale(lungeScale, lungeScale * (1 - fx.dead * 0.62));
-  if (fx.dead > 0) ctx.globalAlpha *= 1 - fx.dead * 0.35;
+  // dying: swell and tremble before bursting
+  const swell = 1 + fx.dead * fx.dead * 0.3;
+  if (fx.dead > 0) ctx.translate(noise(fx.t * 120) * fx.dead * u * 0.03, 0);
+  ctx.scale(lungeScale * swell, lungeScale * swell);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.lineWidth = Math.max(1.2, u * 0.012);
   const s = fx.seed * 1000 + fx.boil;
-  const line = fx.flash > 0.5 ? '#ffffff' : INK.bone;
+  const line = fx.flash > 0.5 || fx.dead > 0.4 ? '#ffffff' : INK.bone;
   ctx.strokeStyle = line;
 
   switch (id) {
