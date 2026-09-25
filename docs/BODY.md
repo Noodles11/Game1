@@ -1,7 +1,6 @@
 # Body slots — design decisions
 
-Status: **decided, not built yet.** The questions and answers from the concept review.
-Nothing here is implemented.
+Status: **built.** The questions and answers from the concept review, then the numbers chosen when building it.
 
 ## Concept
 
@@ -38,9 +37,47 @@ Nothing here is implemented.
 | 19 | Lore | Disabled limbs are visibly **torn off**. Surgery bays can **graft** them back. |
 | 20 | Technical cost | Build in 3 steps: 1) core rules and data, 2) body UI, 3) card re-categorisation and balance. |
 
-## Still open
+## Built with these numbers
 
-- Exact numbers: total starting health and each limb's rounded share.
-- Which existing card goes to which slot type.
-- Each enemy's targeting preference.
-- The "limbs stop at 1 health" germline gene: its name and whether it replaces one of the ten.
+**Starting integrity: 50.** Arms 4 each (8%), legs 7 each (14%), head 28 (56%). With a total near 50,
+the exact 7/15/56 split can't be whole numbers, so this is the closest whole-number split.
+
+**Energy:** 4 per turn.
+
+**New germline gene: Clinging Flesh.** Limbs hold at 1 integrity instead of being torn off, and the rest of the blow
+goes to the head. It **replaces Dense Marrow**, since +10 integrity would have needed a limb choice at the start of
+every run. Saved progress with Dense Marrow becomes Clinging Flesh.
+
+### Tactics by slot
+
+| Slot | Cards |
+|---|---|
+| Arms (strike) | Scalpel, Harpoon, Flense, Scatter Rounds, Bonesaw, Salvage Hook, Graft, Siphon Blade, Harvest Needle, Unscarred Edge, Feeding Blade, Sibling Print, Cannibal Print, Hunger Clock, Apex Print, Resonant Strike, Shatter, Split Lens, Echo Scar |
+| Legs (plate, kick) | Brace, **Heel Stomp** (new: Deal 4, Plate 2), Callus, Scar Tissue, Grief Engine, Crystal Skin, Lazarus Cell |
+| Head (mark, weaken, draw, energy) | Neural Spike, Adrenal Leak, Cold Echo, Overclock Jack, Donor Cell, Mutagen Flask, Triage Tag, Overwrite |
+| Any slot | Clot Patch, Biomass Poultice, Marrow Knit |
+
+**Starter tactics (12):** arms: Scalpel ×3, Harpoon, Flense. Legs: Brace ×2, Heel Stomp ×2. Head: Neural Spike, Cold Echo, Adrenal Leak.
+
+### Enemy targets
+
+| Enemy | Aims at | Why |
+|---|---|---|
+| Hull Tick, Shardling, Lattice Crawler, Vat Bloom | legs | low to the floor |
+| Mewling Copy, Hollow Twin, Refractor | arms | they want your hands / mirror your strikes |
+| Sentry Drone, The Choir, The First, The Prism Mother | head | they go for the mind |
+| Custodian Husk, Singing Geode | anywhere | |
+
+The target is picked at the start of each of your turns, from working limbs of that kind (the head if none are left),
+and shown on the intent (→ L.ARM). If that limb is torn off before the enemy acts, it picks again.
+
+### Other rules
+
+- Heal cards that let you choose a limb: medic cards and Suture Gel. Graft, Lazarus Cell, Parasite and
+  Harvest Needle heal the most damaged limb automatically.
+- Draw effects ask which slot to redraw. Mid-turn redraws only take from the draw pile and never reshuffle
+  the discard, so a free card like Adrenal Leak can't loop forever.
+- Clot Patches from Triage fill an empty working slot, otherwise they sit in a spare slot.
+- Saves from before this change can't be loaded. The game starts a new clone.
+
+Bot sim (120 runs): 67 clear Kessra, 38 die in the lab, 15 die in Kessra (10 cleared before this change).

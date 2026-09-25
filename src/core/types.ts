@@ -1,3 +1,5 @@
+import type { Aim, Limb } from './body';
+
 export type DeckKind = 'combat' | 'survey';
 
 export type SurveyAction = 'override' | 'cut' | 'scan' | 'pry' | 'stim' | 'flare' | 'notes';
@@ -118,6 +120,8 @@ export interface EnemyDef {
   splits?: boolean;
   /** While plated, reflects this share of incoming damage back at you. */
   reflect?: number;
+  /** Which part of the clone it goes for. Default: anywhere. */
+  aim?: Aim;
   /** Swaps to a harsher pattern once HP drops to `below` of max. */
   phase2?: { below: number; pattern: Intent[]; line?: string };
 }
@@ -133,6 +137,8 @@ export interface EnemyState {
   alive: boolean;
   split?: boolean;
   phase2?: boolean;
+  /** The limb its next attack will land on. Shown on its intent. */
+  target?: Limb;
 }
 
 export type FeatureKind = 'none' | 'door' | 'debris' | 'crate' | 'pod' | 'surgery' | 'enemies' | 'event' | 'exit';

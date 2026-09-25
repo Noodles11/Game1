@@ -284,7 +284,7 @@ Ten to collect:
 | Mitochondrial Surplus | +1 tactic energy every turn. |
 | Pineal Gate | See hidden gateways (below). |
 | Deep Lungs | +1 oxygen while exploring. |
-| Dense Marrow | +10 max integrity. |
+| Clinging Flesh | Limbs hold at 1 integrity instead of being torn off (replaced Dense Marrow). |
 | Carrion Gut | Eating biomass heals 50% more. |
 | Second Heart | Once per run, a killing blow leaves you at 30% integrity. |
 | Spare Cell | Draw 2 extra tactics on the first turn of every fight. |

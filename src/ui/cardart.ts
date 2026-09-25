@@ -278,6 +278,11 @@ const PLATES: Record<string, Plate> = {
     emblem: `<circle cx="42" cy="32" r="15" fill="none" stroke="${INK}" stroke-width="3"/>` + line('M42 12 L42 52 M22 32 L62 32') +
       P('M66 38 L72 38 L72 44 L78 44 L78 50 L72 50 L72 56 L66 56 L66 50 L60 50 L60 44 L66 44 Z', `fill="${GREEN}" stroke="${INK}" stroke-width="1.5"`),
   },
+  stomp: {
+    color: MUSTARD, sun: [64, 18],
+    emblem: P('M30 8 L44 8 L46 36 L66 42 Q72 44 72 50 L72 54 L28 54 L28 44 Z') + hi('M34 12 L36 38') +
+      `<path d="M20 58 L80 58" stroke="${INK}" stroke-width="3"/><path d="M24 58 l-6 -6 M76 58 l6 -6 M50 58 l0 -3" stroke="${RED}" stroke-width="2"/>`,
+  },
 };
 
 const FALLBACK: Plate = { color: MUSTARD, sun: [50, 26], emblem: `<circle cx="50" cy="30" r="10" fill="${INK}"/>` };

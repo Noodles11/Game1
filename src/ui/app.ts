@@ -1,7 +1,8 @@
 import {
   GENES, MUTATIONS, applyMutation, applySurgery, cardDef, cardLevel, cardName, cardText, imprintTotal, isMedic, mutationAmount,
-  needsTarget, nextStep, surgeryOps,
+  healsChosenLimb, needsTarget, nextStep, surgeryOps,
 } from '../core/cards';
+import { LIMBS, LIMB_NAME, LIMB_SHORT, LIMB_TYPE, type Limb } from '../core/body';
 import { ENEMIES } from '../core/enemies';
 import { FORCE_COST, Game, RELIQUARY_PRICE, freshMeta, type GameEvent } from '../core/game';
 import type { CardInstance, EnemyState, MapNode, Meta } from '../core/types';
@@ -21,7 +22,11 @@ const META_KEY = 'reprint.meta';
 function loadMeta(): Meta {
   try {
     const d = JSON.parse(store(META_KEY) ?? 'null');
-    if (d && Array.isArray(d.boons) && Array.isArray(d.worldsCleared) && Array.isArray(d.logs)) return d;
+    if (d && Array.isArray(d.boons) && Array.isArray(d.worldsCleared) && Array.isArray(d.logs)) {
+      // Dense Marrow became Clinging Flesh when the body split into limbs
+      d.boons = d.boons.map((b: string) => (b === 'marrow' ? 'clinging' : b)).filter((b: string) => BOONS[b]);
+      return d;
+    }
   } catch {
     /* fall through to a fresh meta */
   }
@@ -65,6 +70,10 @@ const HINTS: Record<string, string> = {
   hold: 'Hold — stays in your hand at the end of your turn. It takes one of your draw slots.',
   sibling: 'Sibling — printed from one line. Every Imprint one copy gets, all copies get, and new copies arrive already grown.',
   unstable: 'Unstable — the result is random, and one time in three it is a defect.',
+  body: 'Body — each limb has its own integrity. Arms and legs torn off at 0 (their slot goes dark until healed). The head at 0 is death. Tap a limb to see it.',
+  slot: 'Empty slot — its deck has no card left to give this turn.',
+  limblost: 'Torn off — this limb is at 0. Its cards cannot be used until it is healed above 0. Hits aimed at it land on the head.',
+  aim: 'Target — the limb this enemy will strike. Hits on a torn-off limb land on the head instead.',
   surgerybay: 'Surgery bay — pay biomass to cut defects, elite drawbacks, negative scars and biomass prices out of your cards.',
   elite: 'Elite mutation — rare at splice pods. Stronger than any normal gene, and it always takes something back.',
   fleeting: 'Fleeting — printed during this fight. It is not part of your deck and is gone when the fight ends.',
@@ -276,6 +285,8 @@ export class App {
       case 'mod': g.chooseModifier(el.dataset.mod as 'biomass' | 'integrity' | 'energy'); break;
       case 'empower': g.empowerTarget(uid); break;
       case 'pick': g.pickCard(uid); break;
+      case 'redraw-slot': g.pickSlot(Number(el.dataset.slot)); break;
+      case 'limb': this.tapLimb(el.dataset.limb as Limb); break;
       case 'skip-pick': g.skipPick(); break;
       case 'world': g.chooseWorld(el.dataset.world!); break;
       case 'passage': this.selected = null; this.mapOpen = false; g.travel(Number(el.dataset.node)); break;
@@ -310,7 +321,8 @@ export class App {
         if (g.playSurvey(uid)) this.selected = null;
       } else {
         this.selected = uid;
-        g.message = this.describe(card, g.surveyPlayable(card));
+        const reason = g.surveyPlayable(card);
+        g.message = this.describe(card, reason) + (healsChosenLimb(card.defId) && !reason ? ' <strong>Tap a limb to heal it.</strong>' : '');
       }
       return;
     }
@@ -324,8 +336,31 @@ export class App {
       } else {
         this.selected = uid;
         const reason = g.combatPlayable(card);
-        g.message = this.describe(card, reason) + (multi && !reason ? ' <strong>Tap an enemy.</strong>' : '');
+        const ask = multi ? ' <strong>Tap an enemy.</strong>' : healsChosenLimb(card.defId) ? ' <strong>Tap a limb to heal it.</strong>' : '';
+        g.message = this.describe(card, reason) + (reason ? '' : ask);
       }
+    }
+  }
+
+  /** A limb segment: the target of a selected heal card, or where new integrity goes. */
+  private tapLimb(l: Limb) {
+    const g = this.game;
+    if (g.phase === 'limb') {
+      g.chooseLimbGain(l);
+      return;
+    }
+    if (this.selected === null) {
+      const b = g.body[l];
+      g.message = `${LIMB_NAME[l]}: ${b.hp}/${b.max} integrity.${b.hp <= 0 ? ' Torn off — heal it to use it again.' : ''}`;
+      return;
+    }
+    const uid = this.selected;
+    if (g.phase === 'combat') {
+      const card = g.combat?.hand.find((c) => c.uid === uid);
+      if (card && healsChosenLimb(card.defId) && g.playCombat(uid, undefined, l)) this.selected = null;
+    } else if (g.phase === 'explore' || g.phase === 'map') {
+      const card = g.sHand.find((c) => c.uid === uid);
+      if (card && healsChosenLimb(card.defId) && g.playSurvey(uid, l)) this.selected = null;
     }
   }
 
@@ -437,6 +472,8 @@ export class App {
         this.float(`IMPRINT ${e.label}`, e.amount < 0 ? 'hurt' : 'res', 50, 26);
         break;
       case 'consumed': this.float('CONSUMED', 'hurt', 50, 30); break;
+      case 'limbLost': this.float(`${LIMB_NAME[e.limb].toUpperCase()} TORN OFF`, 'hurt', 50, 44); break;
+      case 'limbBack': this.float(`${LIMB_NAME[e.limb].toUpperCase()} RESTORED`, 'good', 50, 44); break;
       case 'printed':
         this.printStart.set(e.uid, performance.now());
         this.float('+ CLOT PATCH', 'good', 50, 38);
@@ -611,6 +648,7 @@ export class App {
       const net = Math.max(0, dmg - g.playerBlock);
       const shown = net < dmg ? `<s>${dmg}</s>${net}` : `${dmg}`;
       parts.push(`<span class="atk${net === 0 ? ' nil' : ''}" data-hint="plate">${shown}${hits}</span>`);
+      if (e.target) parts.push(`<span class="tgt" data-hint="aim">→ ${LIMB_SHORT[e.target]}</span>`);
     }
     if (intent.block) parts.push(`<span class="blk" data-hint="plate">▢${intent.block}</span>`);
     if (intent.strength) parts.push(`<span class="dbf" data-hint="strength">+${intent.strength} str</span>`);
@@ -731,9 +769,7 @@ export class App {
           : '<button class="btn primary" data-act="advance">advance ▲</button>'}`;
     } else if (g.phase === 'combat' && g.combat) {
       const c = g.combat;
-      hand = c.hand.length
-        ? c.hand.map((card) => this.cardHtml(card, { dim: !!g.combatPlayable(card), print: this.printFor(card.uid) })).join('')
-        : '<p class="empty">hand empty</p>';
+      hand = this.slotsHtml((card) => this.cardHtml(card, { dim: !!g.combatPlayable(card), print: this.printFor(card.uid) }));
       const pips = Array.from({ length: c.energyCap }, (_, i) => `<i class="${i < c.energy ? 'on' : ''}"></i>`).join('');
       let res = '';
       if (g.world === 'kessra' || (g.hasBoon('resonant-core') && c.playedThisFight === 0)) {
@@ -752,10 +788,54 @@ export class App {
     } else {
       hand = '<p class="empty">—</p>';
     }
+    const showBody = g.phase === 'combat' || g.phase === 'explore' || g.phase === 'map';
     this.dock.innerHTML = `
       <p class="hint">${g.message || '&nbsp;'}</p>
-      <div class="hand">${hand}</div>
+      <div class="hand ${g.phase === 'combat' ? 'slots' : ''}">${hand}</div>
+      ${showBody ? this.bodyBarHtml() : ''}
       <div class="bar">${bar}</div>`;
+  }
+
+  /** The five body slots, left leg to right leg, then any spare cards. */
+  private slotsHtml(render: (card: CardInstance) => string): string {
+    const g = this.game;
+    const c = g.combat!;
+    const out = LIMBS.map((l, i) => {
+      const card = g.slotCard(i);
+      if (card) return render(card);
+      const lost = g.isDisabled(l);
+      return `<div class="slot ${lost ? 'lost' : 'empty'}" data-hint="${lost ? 'limblost' : 'slot'}">
+        ${limbIcon(LIMB_TYPE[l])}<span>${LIMB_SHORT[l]}</span>${lost ? '<i class="x">✕</i>' : ''}</div>`;
+    });
+    const spares = c.hand.filter((h) => g.slotOf(h.uid) < 0).map(render);
+    return [...out, ...spares].join('');
+  }
+
+  /** One integrity bar in five segments, one per limb, under the slots. */
+  private bodyBarHtml(): string {
+    const g = this.game;
+    const sel = this.selected;
+    const healing = sel !== null && (() => {
+      const card = g.combat?.hand.find((c) => c.uid === sel) ?? g.sHand.find((c) => c.uid === sel);
+      return !!card && healsChosenLimb(card.defId);
+    })();
+    const aimed = new Map<Limb, number>();
+    if (g.phase === 'combat') {
+      for (const e of g.livingEnemies()) {
+        if (e.target && g.intentDamage(e) > 0) aimed.set(e.target, (aimed.get(e.target) ?? 0) + 1);
+      }
+    }
+    const segs = LIMBS.map((l) => {
+      const b = g.body[l];
+      const pct = Math.max(0, (b.hp / b.max) * 100);
+      const cls = [b.hp <= 0 ? 'lost' : '', healing ? 'target' : '', aimed.has(l) ? 'aimed' : '', l === 'head' ? 'head' : ''].filter(Boolean).join(' ');
+      return `<button class="seg ${cls}" data-act="limb" data-limb="${l}" aria-label="${LIMB_NAME[l]} ${b.hp} of ${b.max}">
+        <span class="fill" style="width:${pct}%"></span>
+        <b><i class="lbl">${LIMB_SHORT[l]}</i>${b.hp}<small>/${b.max}</small></b>
+        ${aimed.has(l) ? `<i class="aim">◎${aimed.get(l)! > 1 ? aimed.get(l) : ''}</i>` : ''}
+      </button>`;
+    });
+    return `<div class="bodybar" data-hint="body">${segs.join('')}</div>`;
   }
 
   /** Cards new to the hand start printing, one after another. */
@@ -777,14 +857,28 @@ export class App {
     return elapsed > PRINT_MS ? undefined : elapsed;
   }
 
-  private pickHtml(kind: 'donor' | 'flask' | 'cannibal'): string {
+  private pickHtml(kind: 'donor' | 'flask' | 'cannibal' | 'redraw'): string {
     const g = this.game;
+    if (kind === 'redraw') {
+      const n = g.combat!.pendingPick!.times;
+      const slots = LIMBS.map((l, i) => {
+        const card = g.slotCard(i);
+        if (g.isDisabled(l)) return `<div class="slot lost">${limbIcon(LIMB_TYPE[l])}<span>${LIMB_SHORT[l]}</span><i class="x">✕</i></div>`;
+        if (card) return this.cardHtml(card, { act: 'redraw-slot', extra: `data-slot="${i}"` });
+        return `<button class="slot empty" data-act="redraw-slot" data-slot="${i}">${limbIcon(LIMB_TYPE[l])}<span>${LIMB_SHORT[l]}</span></button>`;
+      });
+      return `
+        <p class="hint"><strong>Choose a slot to redraw${n > 1 ? ` (${n} left)` : ''}.</strong> <em>Its card goes to the discard; a new one takes its place.</em></p>
+        <div class="hand slots">${slots.join('')}</div>
+        ${this.bodyBarHtml()}
+        <div class="bar"><span class="spacer"></span><button class="btn" data-act="skip-pick">skip</button></div>`;
+    }
     const cards = g.combat!.hand.map((c) => this.cardHtml(c, { act: 'pick' }));
     const ask = {
       donor: '<strong>Choose a card to receive the dose.</strong> <em>Imprint +2, for the rest of the run.</em>',
       flask: '<strong>Choose a card to mutate.</strong> <em>A free gene. One time in three, a defect.</em>',
       cannibal: '<strong>Choose a card to consume.</strong> <em>Gone for good. Its damage and plating become this card’s.</em>',
-    }[kind];
+    }[kind as 'donor' | 'flask' | 'cannibal'];
     return `
       <p class="hint">${ask}</p>
       <div class="hand">${cards.join('')}</div>
@@ -869,6 +963,15 @@ export class App {
       html = this.spliceHtml();
     } else if (g.phase === 'surgery') {
       html = this.surgeryHtml();
+    } else if (g.phase === 'limb') {
+      html = `
+        <div class="eyebrow">new tissue · +${g.limbGain?.amount} integrity</div>
+        <h2>where does it grow?</h2>
+        <p>Choose the limb that takes it. It raises that limb's maximum and heals it by the same amount — a torn-off limb comes back.</p>
+        <div class="limbpick">${LIMBS.map((l) => `
+          <button class="gene" data-act="limb" data-limb="${l}">
+            ${limbIcon(LIMB_TYPE[l])}<b>${LIMB_NAME[l]}</b><span class="price">${g.body[l].hp}/${g.body[l].max}</span>
+          </button>`).join('')}</div>`;
     }
     this.sheetEl.hidden = !html;
     this.sheetEl.classList.toggle('full', full);
@@ -1154,4 +1257,14 @@ export class App {
       <div class="grid">${grid.length ? grid.join('') : '<p>None of your cards has anything to cut out.</p>'}</div>
       <div class="actions"><button class="btn primary" data-act="leave-surgery">done</button></div>`;
   }
+}
+
+/** Simple ink drawings of a leg, an arm and a head, for slot placeholders. */
+function limbIcon(type: 'leg' | 'arm' | 'head'): string {
+  const d = {
+    leg: 'M22 6 L26 30 L24 52 L34 56',
+    arm: 'M10 16 Q24 12 30 24 L40 40 M40 40 l6 -2 M40 40 l4 5',
+    head: 'M28 10 a12 13 0 1 1 -0.1 0 Z M22 25 h3 M31 25 h3 M24 32 q4 3 8 0',
+  }[type];
+  return `<svg class="limbicon" viewBox="0 0 56 60" aria-hidden="true"><path d="${d}" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }

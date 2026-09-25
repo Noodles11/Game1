@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GENES, cardName, cardStats, cardText, genesFor, splice, spliceCost } from '../src/core/cards';
+import { GENES, cardName, cardSlot, cardStats, cardText, genesFor, splice, spliceCost } from '../src/core/cards';
 import { FORCE_COST, Game, MAX_ENERGY, freshMeta } from '../src/core/game';
 import type { CardInstance, Segment } from '../src/core/types';
 import { GERMLINE, MAP_ROWS, generateMap } from '../src/core/worlds';
@@ -135,7 +135,7 @@ describe('combat and harvest', () => {
     g.finishHarvest();
     expect(g.phase).toBe('reward');
     g.takeOffer(0);
-    expect(g.combatDeck.length).toBe(9);
+    expect(g.combatDeck.length).toBe(13);
     expect(g.phase).toBe('explore');
   });
 
@@ -358,6 +358,7 @@ describe('sectors and modifiers', () => {
         for (const k of g.corpses) (g.hp < 40 ? g.consume(k.uid) : g.render(k.uid));
         g.finishHarvest();
       } else if (g.phase === 'reward' || g.phase === 'loot') g.takeOffer(0);
+      else if (g.phase === 'limb') g.chooseLimbGain('head');
       else if (g.phase === 'splice') {
         {
           g.feedVat(Math.min(g.biomass, 15));
@@ -385,6 +386,9 @@ describe('sectors and modifiers', () => {
     const maxBefore = g.maxHp;
     g.chooseModifier('integrity');
     expect(g.modifiers.integrity).toBe(true);
+    expect(g.phase).toBe('limb');
+    g.chooseLimbGain('larm');
+    expect(g.body.larm.max).toBe(4 + 16);
     expect(g.maxHp).toBe(maxBefore + 16);
     expect(g.hp).toBe(hpBefore + 16);
     expect(g.phase).toBe('explore');
@@ -397,8 +401,8 @@ describe('sectors and modifiers', () => {
     const g = new Game(9);
     g.modifiers.energy = true;
     walkToFight(g);
-    expect(g.combat!.energyCap).toBe(4);
-    expect(g.combat!.energy).toBe(4);
+    expect(g.combat!.energyCap).toBe(MAX_ENERGY + 1);
+    expect(g.combat!.energy).toBe(MAX_ENERGY + 1);
   });
 
   it('the biomass modifier scales every gain by 1.5x', () => {
@@ -499,6 +503,11 @@ function autoplay(g: Game, guardMax = 3000): string {
               const target = g.combat.hand[0];
               if (target) g.empowerTarget(target.uid); else g.skipEmpower();
             }
+            if (g.combat?.pendingPick?.kind === 'redraw') {
+              // redraw the first empty working slot, else the leftmost
+              const empty = [0, 1, 2, 3, 4].find((i) => !g.isDisabled(['lleg', 'larm', 'head', 'rarm', 'rleg'][i] as never) && !g.slotCard(i));
+              if (!g.pickSlot(empty ?? 2)) g.skipPick();
+            }
             if (g.combat?.pendingPick) {
               // feed the strongest attack; eat the weakest card
               const byDmg = [...g.combat.hand].sort((a, b) => cardStats(b).damage - cardStats(a).damage);
@@ -519,6 +528,7 @@ function autoplay(g: Game, guardMax = 3000): string {
       case 'mainframe': g.chooseWorld('kessra'); break;
       case 'event': if (!g.chooseEventOption(1)) g.leaveEvent(); break;
       case 'boon': g.chooseBoon(g.boonOffers[0]); break;
+      case 'limb': g.chooseLimbGain('head'); break;
       case 'splice': {
         {
           g.feedVat(Math.min(g.biomass, 15));
@@ -1100,12 +1110,20 @@ describe('germline genes', () => {
     expect(g.combat!.hand.length).toBe(7);
   });
 
-  it('Deep Lungs and Dense Marrow raise oxygen and integrity from the first step', () => {
-    const g = new Game(4, 1, withGenes('lungs', 'marrow'));
+  it('Deep Lungs raises oxygen from the first step', () => {
+    const g = new Game(4, 1, withGenes('lungs'));
     expect(g.maxOxygen).toBe(4);
     expect(g.oxygen).toBe(4);
-    expect(g.maxHp).toBe(52);
-    expect(g.hp).toBe(52);
+  });
+
+  it('Clinging Flesh: limbs hold at 1 and keep working; the rest of the blow goes to the head', () => {
+    const g = new Game(4, 1, withGenes('clinging'));
+    fightIn(g, ['crawler'], null);
+    const hit = (n: number, l: string) => (g as unknown as { damagePlayer(a: number, p: boolean, l: string): void }).damagePlayer(n, true, l);
+    hit(10, 'larm');
+    expect(g.body.larm.hp).toBe(1);
+    expect(g.isDisabled('larm')).toBe(false);
+    expect(g.body.head.hp).toBe(28 - 7);
   });
 
   it('Carrion Gut heals 50% more from eaten biomass', () => {
@@ -1123,7 +1141,7 @@ describe('germline genes', () => {
     const hit = (n: number) => (g as unknown as { damagePlayer(a: number): void }).damagePlayer(n);
     hit(999);
     expect(g.isDead).toBe(false);
-    expect(g.hp).toBe(Math.ceil(g.maxHp * 0.3));
+    expect(g.body.head.hp).toBe(Math.ceil(g.body.head.max * 0.3));
     hit(999);
     expect(g.isDead).toBe(true);
   });
@@ -1175,7 +1193,8 @@ describe('germline genes', () => {
     expect(g.offers.length).toBe(2);
     const id = g.offers[0].defId;
     g.secretTake(0);
-    expect(g.maxHp).toBe(42 - 8);
+    expect(g.maxHp).toBe(50 - 8);
+    expect(g.body.head.max).toBe(28 - 8);
     expect(g.combatDeck.some((c) => c.defId === id)).toBe(true);
     expect(g.phase).toBe('explore');
   });
@@ -1426,7 +1445,7 @@ describe('splicing prices and elite mutations', () => {
     g2.feedVat(18);
     const sc = g2.combatDeck.find((x) => x.defId === 'scalpel')!;
     expect(g2.mutateCard(sc.uid)).toBe(true);
-    expect(g2.maxHp).toBe(37);
+    expect(g2.maxHp).toBe(45);
   });
 
   it('Pain Engine: +2 each time you lose integrity; costs 1 biomass to play', () => {
@@ -1454,5 +1473,105 @@ describe('splicing prices and elite mutations', () => {
     g.playCombat(cards[1].uid, c.enemies[0].uid);
     expect(g.hp).toBe(20);
     expect(cardStats(cards[1]).damage).toBe(13);
+  });
+});
+
+describe('the body: five limbs, five slots', () => {
+  const hit = (g: Game, n: number, l: string) =>
+    (g as unknown as { damagePlayer(a: number, p: boolean, l: string): void }).damagePlayer(n, true, l);
+
+  it('starts with 50 integrity: arms 4, legs 7, head 28', () => {
+    const g = new Game(1);
+    expect(g.body.larm).toEqual({ hp: 4, max: 4 });
+    expect(g.body.rleg).toEqual({ hp: 7, max: 7 });
+    expect(g.body.head).toEqual({ hp: 28, max: 28 });
+    expect(g.maxHp).toBe(50);
+  });
+
+  it('every working limb gets a card of its kind each turn, and energy is 4', () => {
+    const g = new Game(5);
+    fightIn(g, ['crawler'], null);
+    const kinds = ['leg', 'arm', 'head', 'arm', 'leg'];
+    for (let i = 0; i < 5; i++) {
+      const card = g.slotCard(i)!;
+      expect(['any', kinds[i]]).toContain(cardSlot(card.defId));
+    }
+    expect(g.combat!.energy).toBe(4);
+  });
+
+  it('enemies aim by preference: a crawler goes for the legs', () => {
+    const g = new Game(5);
+    fightIn(g, ['crawler'], null);
+    expect(['lleg', 'rleg']).toContain(g.livingEnemies()[0].target);
+  });
+
+  it('a limb at 0 is torn off: its slot empties, the rest of the blow and later hits go to the head', () => {
+    const g = new Game(5);
+    fightIn(g, ['crawler'], null);
+    hit(g, 10, 'larm');
+    expect(g.isDisabled('larm')).toBe(true);
+    expect(g.body.head.hp).toBe(28 - 6);
+    expect(g.slotCard(1)).toBeUndefined();
+    hit(g, 3, 'larm');
+    expect(g.body.head.hp).toBe(28 - 9);
+    g.endTurn();
+    expect(g.slotCard(1)).toBeUndefined();
+  });
+
+  it('the head at 0 is death, whatever the limbs have left', () => {
+    const g = new Game(5);
+    fightIn(g, ['crawler'], null);
+    hit(g, 28, 'head');
+    expect(g.isDead).toBe(true);
+  });
+
+  it('a heal card heals the limb you choose; above 0 the limb works again', () => {
+    const g = new Game(5);
+    const clot: CardInstance = { uid: 9900, defId: 'clot', genes: [] };
+    g.combatDeck.push(clot);
+    fightIn(g, ['crawler'], null);
+    hit(g, 4, 'rarm');
+    expect(g.isDisabled('rarm')).toBe(true);
+    g.combat!.hand.push(clot);
+    expect(g.playCombat(clot.uid, undefined, 'rarm')).toBe(true);
+    expect(g.body.rarm.hp).toBe(2);
+    expect(g.isDisabled('rarm')).toBe(false);
+    expect(g.slotCard(3)).toBeDefined();
+  });
+
+  it('eating biomass heals the most damaged limbs first', () => {
+    const g = new Game(5);
+    g.body.lleg.hp = 1;
+    g.body.head.hp = 20;
+    g.phase = 'harvest';
+    g.corpses = [{ uid: 1, defId: 'tick', biomass: 4, tagged: false, taken: false }];
+    g.consume(1);
+    expect(g.body.lleg.hp).toBe(5);
+    expect(g.body.head.hp).toBe(20);
+  });
+
+  it('a draw effect asks which slot to redraw', () => {
+    const g = new Game(5);
+    const echo: CardInstance = { uid: 9910, defId: 'echo', genes: [] };
+    g.combatDeck.push(echo);
+    fightIn(g, ['crawler'], null);
+    g.combat!.hand.push(echo);
+    g.playCombat(echo.uid);
+    expect(g.combat!.pendingPick?.kind).toBe('redraw');
+    const before = g.slotCard(0)!.uid;
+    expect(g.pickSlot(0)).toBe(true);
+    expect(g.slotCard(0)?.uid).not.toBe(before);
+    expect(g.combat!.pendingPick?.times).toBe(1); // Cold Echo draws 2
+    g.pickSlot(4);
+    expect(g.combat!.pendingPick).toBeNull();
+  });
+
+  it('forcing a door hurts an arm', () => {
+    const g = new Game(4);
+    const d = g.segments.findIndex((s) => s.feature === 'debris');
+    g.pos = d - 1;
+    g.segments[d].revealed = true;
+    g.force();
+    expect(g.body.larm.hp + g.body.rarm.hp).toBeLessThan(8);
   });
 });

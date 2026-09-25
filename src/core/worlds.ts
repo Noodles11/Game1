@@ -61,10 +61,10 @@ export const BOONS: Record<string, Boon> = {
     text: '+1 oxygen while exploring.',
     flavor: 'Extra sacs along the spine. You breathe less and walk further.',
   },
-  marrow: {
-    id: 'marrow', name: 'Dense Marrow', glyph: '▥',
-    text: '+10 max integrity.',
-    flavor: 'Heavier bones. The printer was told to stop being careful with you.',
+  clinging: {
+    id: 'clinging', name: 'Clinging Flesh', glyph: '⟓',
+    text: 'Your limbs are never torn off: they hold at 1 integrity and keep working. The rest of the blow goes to the head.',
+    flavor: 'The tissue refuses to let go. Neither do you.',
   },
   carrion: {
     id: 'carrion', name: 'Carrion Gut', glyph: '⊕',

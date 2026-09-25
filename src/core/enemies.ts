@@ -3,6 +3,7 @@ import type { EnemyDef } from './types';
 export const ENEMIES: Record<string, EnemyDef> = {
   tick: {
     id: 'tick',
+    aim: 'legs',
     name: 'Hull Tick',
     hp: 11,
     biomass: 3,
@@ -15,6 +16,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   },
   copy: {
     id: 'copy',
+    aim: 'arms',
     name: 'Mewling Copy',
     hp: 20,
     biomass: 5,
@@ -27,6 +29,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   },
   hollow: {
     id: 'hollow',
+    aim: 'arms',
     name: 'Hollow Twin',
     hp: 46,
     biomass: 12,
@@ -40,6 +43,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   },
   husk: {
     id: 'husk',
+    aim: 'any',
     name: 'Custodian Husk',
     hp: 26,
     biomass: 6,
@@ -52,6 +56,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   },
   drone: {
     id: 'drone',
+    aim: 'head',
     name: 'Sentry Drone',
     hp: 20,
     biomass: 5,
@@ -64,6 +69,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   },
   bloom: {
     id: 'bloom',
+    aim: 'legs',
     name: 'Vat Bloom',
     hp: 26,
     biomass: 6,
@@ -76,6 +82,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   },
   first: {
     id: 'first',
+    aim: 'head',
     name: 'The First',
     hp: 96,
     biomass: 16,
@@ -89,6 +96,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   },
   choir: {
     id: 'choir',
+    aim: 'head',
     name: 'The Choir',
     hp: 78,
     biomass: 12,
@@ -104,6 +112,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   // ---- Kessra (Glass Caves) ----
   shardling: {
     id: 'shardling',
+    aim: 'legs',
     name: 'Shardling',
     hp: 12,
     biomass: 2,
@@ -117,6 +126,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   },
   crawler: {
     id: 'crawler',
+    aim: 'legs',
     name: 'Lattice Crawler',
     hp: 36,
     biomass: 6,
@@ -129,6 +139,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   },
   geode: {
     id: 'geode',
+    aim: 'any',
     name: 'Singing Geode',
     hp: 18,
     biomass: 5,
@@ -141,6 +152,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   },
   refractor: {
     id: 'refractor',
+    aim: 'arms',
     name: 'Refractor',
     hp: 52,
     biomass: 10,
@@ -154,6 +166,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   },
   prism: {
     id: 'prism',
+    aim: 'head',
     name: 'The Prism Mother',
     hp: 150,
     biomass: 18,

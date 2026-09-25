@@ -1,3 +1,4 @@
+import type { CardSlot } from './body';
 import type { CardDef, CardInstance, CardStats, DeckKind, ImprintStat, MutStat } from './types';
 
 const EMPTY: CardStats = {
@@ -38,6 +39,11 @@ export const CARDS: Record<string, CardDef> = {
     id: 'scalpel', name: 'Scalpel', deck: 'combat', glyph: '╱',
     base: { cost: 1, damage: 6 },
     flavor: 'Standard issue. Still warm from the printer.',
+  },
+  stomp: {
+    id: 'stomp', name: 'Heel Stomp', deck: 'combat', glyph: '⊥',
+    base: { cost: 1, damage: 4, block: 2 },
+    flavor: 'Printed legs were meant for running. They learned this instead.',
   },
   brace: {
     id: 'brace', name: 'Brace', deck: 'combat', glyph: '▢',
@@ -302,10 +308,15 @@ export const CARDS: Record<string, CardDef> = {
   },
 };
 
-export const STARTER_COMBAT = ['scalpel', 'scalpel', 'scalpel', 'scalpel', 'brace', 'brace', 'harpoon', 'flense'];
+/** Starter tactics: arms 5, legs 4, head 3. */
+export const STARTER_COMBAT = [
+  'scalpel', 'scalpel', 'scalpel', 'harpoon', 'flense',
+  'brace', 'brace', 'stomp', 'stomp',
+  'spike', 'echo', 'adrenal',
+];
 export const STARTER_SURVEY = ['override', 'override', 'cutter', 'cutter', 'scan', 'pry', 'stim'];
 export const REWARD_COMBAT = [
-  'scatter', 'spike', 'bonesaw', 'adrenal', 'echo', 'hook', 'flense', 'harpoon', 'graft', 'jack', 'siphon',
+  'scatter', 'spike', 'bonesaw', 'stomp', 'adrenal', 'echo', 'hook', 'flense', 'harpoon', 'graft', 'jack', 'siphon',
   'clot', 'clot', 'poultice', 'poultice', 'knit', 'triage', 'triage',
   'needle', 'unscarred', 'scartissue', 'feeding', 'callus', 'donor', 'sibling', 'cannibal', 'flask', 'hunger', 'grief',
 ];
@@ -721,4 +732,28 @@ export function applySurgery(card: CardInstance, opId: string) {
   } else if (kind === 'bio') {
     card.mut = { ...card.mut, bioCost: (card.mut?.bioCost ?? 0) - 1 };
   }
+}
+
+// ---- Body slots: which limb deck a tactic belongs to ----
+
+const SLOT: Record<string, CardSlot> = {
+  // arms strike
+  scalpel: 'arm', harpoon: 'arm', flense: 'arm', scatter: 'arm', bonesaw: 'arm', hook: 'arm', graft: 'arm',
+  siphon: 'arm', needle: 'arm', unscarred: 'arm', feeding: 'arm', sibling: 'arm', cannibal: 'arm', hunger: 'arm',
+  apex: 'arm', resonant: 'arm', shatter: 'arm', splitlens: 'arm', echoscar: 'arm',
+  // legs plate, dodge and kick
+  brace: 'leg', stomp: 'leg', callus: 'leg', scartissue: 'leg', grief: 'leg', crystalskin: 'leg', lazarus: 'leg',
+  // the head marks, weakens, draws and fuels
+  spike: 'head', adrenal: 'head', echo: 'head', jack: 'head', donor: 'head', flask: 'head', triage: 'head', overwrite: 'head',
+  // medic cards fit anywhere
+  clot: 'any', poultice: 'any', knit: 'any',
+};
+
+export function cardSlot(defId: string): CardSlot {
+  return SLOT[defId] ?? 'arm';
+}
+
+/** Heal cards whose healing goes to a limb the player chooses. */
+export function healsChosenLimb(defId: string): boolean {
+  return isMedic(defId) || defId === 'stim';
 }

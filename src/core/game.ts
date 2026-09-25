@@ -1,8 +1,9 @@
 import {
   REWARD_COMBAT, REWARD_SURVEY, SECRET_CARDS, STARTER_COMBAT, STARTER_SURVEY,
   CARDS, GENES, MUTATIONS, addImprint, applyMutation, applySurgery, cardDef, eliteGenesFor, isMedic, mutationAmount,
-  mutationFits, surgeryOps, cardStats, mutationsFor, needsTarget,
+  mutationFits, surgeryOps, cardSlot, healsChosenLimb, cardStats, mutationsFor, needsTarget,
 } from './cards';
+import { AIM_LIMBS, LIMBS, LIMB_NAME, LIMB_TYPE, freshBody, type Body, type Limb } from './body';
 import { ENEMIES } from './enemies';
 import { Rng } from './rng';
 import type {
@@ -13,7 +14,7 @@ import { BOONS, EVENTS, GERMLINE, LOGS, MAP_ROWS, WORLDS, generateMap } from './
 
 export type Phase =
   | 'explore' | 'combat' | 'harvest' | 'reward' | 'loot' | 'splice' | 'modifier'
-  | 'mainframe' | 'map' | 'event' | 'boon' | 'secret' | 'surgery' | 'dead' | 'won';
+  | 'mainframe' | 'map' | 'event' | 'boon' | 'secret' | 'surgery' | 'limb' | 'dead' | 'won';
 
 /** Maximum integrity a Reliquary card costs. */
 export const RELIQUARY_PRICE = 8;
@@ -28,7 +29,7 @@ export type GameEvent =
   | { type: 'enemyHit'; uid: number; amount: number; blocked: number }
   | { type: 'enemyDie'; uid: number }
   | { type: 'enemyAct'; uid: number }
-  | { type: 'playerHit'; amount: number; blocked: number }
+  | { type: 'playerHit'; amount: number; blocked: number; limb?: Limb }
   | { type: 'heal'; amount: number }
   | { type: 'biomass'; amount: number }
   | { type: 'block'; amount: number }
@@ -43,11 +44,13 @@ export type GameEvent =
   | { type: 'reflect'; amount: number }
   | { type: 'imprint'; uid: number; stat: ImprintStat | 'gene'; amount: number; label: string }
   | { type: 'consumed'; uid: number; defId: string }
-  | { type: 'printed'; uid: number; defId: string };
+  | { type: 'printed'; uid: number; defId: string }
+  | { type: 'limbLost'; limb: Limb }
+  | { type: 'limbBack'; limb: Limb };
 
 /** A card waiting for the player to choose another card in hand. */
 export interface PendingPick {
-  kind: 'donor' | 'flask' | 'cannibal';
+  kind: 'donor' | 'flask' | 'cannibal' | 'redraw';
   source: number;
   /** Resonance can resolve the source twice. */
   times: number;
@@ -80,8 +83,13 @@ export interface CombatState {
   pendingPick: PendingPick | null;
   /** Extra plating on a card (by uid) for the rest of this fight (Hive Shell). */
   plateBuffs?: Map<number, number>;
+  /** The limb a heal card was aimed at, and the limb acting now (for reflected damage). */
+  healTo?: Limb;
+  acting?: Limb;
   /** Clot Patches printed per tagged death, this fight (Triage). */
   triage?: number;
+  /** The card (uid) in each body slot, in LIMBS order. Stale once the card leaves the hand. */
+  slots: (number | null)[];
   /** Every enemy is dead, but a card's effect still waits on the player. The fight ends once it resolves. */
   victoryPending?: boolean;
 }
@@ -91,13 +99,12 @@ export interface Offer {
   deck: DeckKind;
 }
 
-export const MAX_ENERGY = 3;
-export const COMBAT_HAND = 5;
+export const MAX_ENERGY = 4;
 export const MAX_OXYGEN = 3;
 export const SURVEY_HAND = 4;
 export const FORCE_COST = 4;
 const VIEW_RANGE = 4;
-const SAVE_VERSION = 2;
+const SAVE_VERSION = 3;
 const MAX_ENEMIES = 4;
 const ELITE_BIOMASS = 6;
 
@@ -124,8 +131,35 @@ const SECTOR2_WHISPERS = [
 export class Game {
   readonly rng: Rng;
   readonly cloneNo: number;
-  hp = 42;
-  maxHp = 42;
+  /** Integrity per limb. The head keeps most of it; head at 0 is death. */
+  body: Body = freshBody();
+  /** Max integrity waiting for the player to choose a limb, and the phase to return to. */
+  limbGain: { amount: number; resume: Phase } | null = null;
+
+  /** Total integrity, all limbs. */
+  get hp(): number {
+    return LIMBS.reduce((n, l) => n + this.body[l].hp, 0);
+  }
+
+  get maxHp(): number {
+    return LIMBS.reduce((n, l) => n + this.body[l].max, 0);
+  }
+
+  /** Test and debug helper: set total integrity. Damage comes off the head first (down to 1), then the limbs. */
+  set hp(v: number) {
+    for (const l of LIMBS) this.body[l].hp = this.body[l].max;
+    let deficit = Math.max(0, this.maxHp - v);
+    for (const l of ['head', 'lleg', 'rleg', 'larm', 'rarm'] as Limb[]) {
+      const floor = l === 'head' ? 1 : 0;
+      const cut = Math.min(deficit, this.body[l].hp - floor);
+      this.body[l].hp -= cut;
+      deficit -= cut;
+    }
+  }
+
+  isDisabled(l: Limb): boolean {
+    return this.body[l].hp <= 0;
+  }
   biomass = 6;
   combatDeck: CardInstance[] = [];
   surveyDeck: CardInstance[] = [];
@@ -185,10 +219,6 @@ export class Game {
     this.meta = meta;
     this.combatDeck = STARTER_COMBAT.map((id) => this.makeCard(id));
     this.surveyDeck = STARTER_SURVEY.map((id) => this.makeCard(id));
-    if (this.hasBoon('marrow')) {
-      this.maxHp += 10;
-      this.hp += 10;
-    }
     const h = meta.heirloom;
     if (this.hasBoon('heirloom') && h && !!CARDS[h.defId]) {
       this.combatDeck.push({
@@ -390,7 +420,7 @@ export class Game {
   force(): boolean {
     if (this.phase !== 'explore' || !this.blocker()) return false;
     this.front!.cleared = true;
-    this.damagePlayerRaw(FORCE_COST);
+    this.damagePlayerRaw(FORCE_COST, this.aimAt(['larm', 'rarm']));
     if (this.isDead) return true;
     this.message = 'You tear through. Something in your arm gives.';
     return true;
@@ -439,7 +469,7 @@ export class Game {
     }
   }
 
-  playSurvey(uid: number): boolean {
+  playSurvey(uid: number, limb?: Limb): boolean {
     const card = this.sHand.find((c) => c.uid === uid);
     if (!card) return false;
     const reason = this.surveyPlayable(card);
@@ -470,7 +500,7 @@ export class Game {
         this.message = 'Red light floods the next row. Whatever waits there will flinch.';
         this.emit({ type: 'reveal' });
       }
-      if (s.heal > 0) this.healPlayer(s.heal);
+      if (s.heal > 0) this.healPlayer(s.heal, healsChosenLimb(def.id) ? limb : undefined);
       if (s.biomass > 0) this.gainBiomass(s.biomass);
       if (s.draw > 0) this.drawSurvey(s.draw);
       if (!this.message) this.message = 'Choose your path.';
@@ -513,7 +543,7 @@ export class Game {
       default:
         break;
     }
-    if (s.heal > 0) this.healPlayer(s.heal);
+    if (s.heal > 0) this.healPlayer(s.heal, healsChosenLimb(def.id) ? limb : undefined);
     if (s.biomass > 0) this.gainBiomass(s.biomass);
     if (s.draw > 0) this.drawSurvey(s.draw);
     if (this.phase === 'explore' && def.action !== 'override' && def.action !== 'cut' && !this.message) {
@@ -614,13 +644,9 @@ export class Game {
   chooseModifier(key: keyof Modifiers): void {
     if (this.phase !== 'modifier') return;
     this.modifiers[key] = true;
-    if (key === 'integrity') {
-      const bonus = 16;
-      this.maxHp += bonus;
-      this.hp = Math.min(this.maxHp, this.hp + bonus);
-    }
     this.phase = 'explore';
     this.newSurveyTurn();
+    if (key === 'integrity') this.askLimbGain(16);
   }
 
   // ---------------------------------------------------------------- worlds
@@ -792,8 +818,7 @@ export class Game {
   secretTake(index: number): boolean {
     if (this.secret?.kind !== 'reliquary' || !this.offers[index]) return false;
     this.combatDeck.push(this.makeCard(this.offers[index].defId));
-    this.maxHp = Math.max(1, this.maxHp - RELIQUARY_PRICE);
-    this.hp = Math.min(this.hp, this.maxHp);
+    this.loseMax(RELIQUARY_PRICE);
     this.leaveSecret();
     return true;
   }
@@ -801,7 +826,7 @@ export class Game {
   /** Vat room: float until whole again. */
   secretVat(): boolean {
     if (this.secret?.kind !== 'vat') return false;
-    this.healPlayer(this.maxHp);
+    for (const l of LIMBS) this.healLimb(l, this.body[l].max);
     this.leaveSecret();
     return true;
   }
@@ -869,7 +894,7 @@ export class Game {
     const opt = EVENTS[this.eventId].options[index];
     if (!opt) return false;
     const e = opt.effect;
-    if (e.maxHp) this.maxHp += e.maxHp;
+    if (e.maxHp) this.askLimbGain(e.maxHp);
     if (e.heal) this.healPlayer(e.heal);
     if (e.biomass) this.gainBiomass(e.biomass);
     if (e.card) this.combatDeck.push(this.makeCard(e.card));
@@ -945,6 +970,37 @@ export class Game {
     return true;
   }
 
+  /** Max integrity to place: the player picks the limb. */
+  private askLimbGain(amount: number) {
+    this.limbGain = { amount, resume: this.phase };
+    this.phase = 'limb';
+  }
+
+  chooseLimbGain(l: Limb): boolean {
+    const g = this.limbGain;
+    if (this.phase !== 'limb' || !g) return false;
+    const was = this.isDisabled(l);
+    this.body[l].max += g.amount;
+    this.body[l].hp += g.amount;
+    if (was && !this.isDisabled(l)) this.emit({ type: 'limbBack', limb: l });
+    this.phase = g.resume;
+    this.limbGain = null;
+    return true;
+  }
+
+  /** Max integrity lost comes from the limb with the most of it. */
+  private loseMax(n: number) {
+    const l = [...LIMBS].sort((a, b) => this.body[b].max - this.body[a].max)[0];
+    this.body[l].max = Math.max(1, this.body[l].max - n);
+    this.body[l].hp = Math.min(this.body[l].hp, this.body[l].max);
+  }
+
+  /** A working limb from the list, at random. Falls back to the head. */
+  private aimAt(pool: Limb[]): Limb {
+    const up = pool.filter((l) => !this.isDisabled(l));
+    return up.length ? this.rng.pick(up) : 'head';
+  }
+
   /** Throw biomass into the pod. It does not come back. */
   feedVat(n: number): boolean {
     if (this.phase !== 'splice' || !this.vat || n <= 0 || n > this.biomass) return false;
@@ -988,10 +1044,7 @@ export class Game {
       card.prefix = undefined;
       card.mem = { ...card.mem, muts: (card.mem?.muts ?? 0) + 1 };
       const price = GENES[v.effect].maxHpCost ?? 0;
-      if (price) {
-        this.maxHp = Math.max(1, this.maxHp - price);
-        this.hp = Math.min(this.hp, this.maxHp);
-      }
+      if (price) this.loseMax(price);
     } else {
       applyMutation(card, MUTATIONS[v.effect], amount);
     }
@@ -1090,6 +1143,7 @@ export class Game {
       platers: [],
       played: [],
       pendingPick: null,
+      slots: LIMBS.map(() => null),
     };
     this.playerStatus = freshStatus();
     this.corpses = [];
@@ -1147,21 +1201,102 @@ export class Game {
     c.lastWasAttack = false;
     c.energyCap = MAX_ENERGY + (this.modifiers.energy ? 1 : 0) + (this.hasBoon('surplus') ? 1 : 0);
     c.energy = c.energyCap - (c.ambush && c.turn === 1 ? 1 : 0);
-    // held cards take their slots
-    const spare = c.turn === 1 && this.hasBoon('sparecell') ? 2 : 0;
-    this.drawCombat(Math.max(0, COMBAT_HAND - c.hand.length) + spare);
+    // every working limb gets a card; held cards keep theirs
+    this.fillSlots();
+    if (c.turn === 1 && this.hasBoon('sparecell')) this.drawSpare(2);
+    for (const e of this.livingEnemies()) this.chooseAim(e);
   }
 
-  private drawCombat(n: number) {
+  /** The card in a body slot, if it is still in hand. */
+  slotCard(i: number): CardInstance | undefined {
+    const c = this.combat;
+    const uid = c?.slots[i];
+    return uid == null ? undefined : c!.hand.find((h) => h.uid === uid);
+  }
+
+  /** Slot index of a card in hand, or -1 for a spare. */
+  slotOf(uid: number): number {
+    const c = this.combat;
+    if (!c) return -1;
+    const i = c.slots.indexOf(uid);
+    return i >= 0 && this.slotCard(i) ? i : -1;
+  }
+
+  private fitsSlot(card: CardInstance, i: number): boolean {
+    const t = cardSlot(card.defId);
+    return t === 'any' || t === LIMB_TYPE[LIMBS[i]];
+  }
+
+  /**
+   * Draw one card that fits slot i: from the draw pile, else reshuffle that kind from the discard.
+   * Mid-turn redraws never reshuffle, so a free card cannot cycle through a small deck forever.
+   */
+  private drawFor(i: number, reshuffle = true): CardInstance | undefined {
     const c = this.combat!;
-    for (let i = 0; i < n; i++) {
-      if (c.draw.length === 0) {
-        if (c.discard.length === 0) return;
-        c.draw = this.rng.shuffle(c.discard);
-        c.discard = [];
-      }
-      c.hand.push(c.draw.pop()!);
+    const fits = (h: CardInstance) => this.fitsSlot(h, i);
+    let k = -1;
+    for (let j = c.draw.length - 1; j >= 0; j--) if (fits(c.draw[j])) { k = j; break; }
+    if (k < 0) {
+      if (!reshuffle) return undefined;
+      const back = c.discard.filter(fits);
+      if (!back.length) return undefined;
+      c.discard = c.discard.filter((h) => !fits(h));
+      c.draw = [...this.rng.shuffle(back), ...c.draw];
+      k = back.length - 1;
     }
+    return c.draw.splice(k, 1)[0];
+  }
+
+  private fillSlots() {
+    const c = this.combat!;
+    LIMBS.forEach((l, i) => {
+      if (this.isDisabled(l)) {
+        c.slots[i] = null;
+        return;
+      }
+      if (this.slotCard(i)) return;
+      const card = this.drawFor(i);
+      c.slots[i] = card ? card.uid : null;
+      if (card) c.hand.push(card);
+    });
+  }
+
+  /** Extra cards beyond the five slots (Spare Cell). They still need a working limb of their kind. */
+  private drawSpare(n: number) {
+    const c = this.combat!;
+    for (let i = 0; i < n && c.draw.length; i++) c.hand.push(c.draw.pop()!);
+  }
+
+  /** Redraw one body slot (draw effects). */
+  pickSlot(i: number): boolean {
+    const c = this.combat;
+    const p = c?.pendingPick;
+    if (!c || p?.kind !== 'redraw' || this.isDisabled(LIMBS[i])) return false;
+    const old = this.slotCard(i);
+    if (old) {
+      c.hand = c.hand.filter((h) => h !== old);
+      c.discard.push(old);
+    }
+    const card = this.drawFor(i, false);
+    c.slots[i] = card ? card.uid : null;
+    if (card) c.hand.push(card);
+    p.times--;
+    if (p.times <= 0) c.pendingPick = null;
+    if (!c.pendingPick && c.victoryPending) this.endFightWhenResolved();
+    return true;
+  }
+
+  /** Pick the limb an enemy will strike next, by its preference. */
+  private chooseAim(e: EnemyState) {
+    e.target = this.aimAt(AIM_LIMBS[ENEMIES[e.defId].aim ?? 'any']);
+  }
+
+  /** The limb a card acts with: its slot, or a working limb of its kind. */
+  private limbOfCard(card: CardInstance): Limb {
+    const i = this.slotOf(card.uid);
+    if (i >= 0) return LIMBS[i];
+    const t = cardSlot(card.defId);
+    return this.aimAt(t === 'any' ? LIMBS : LIMBS.filter((l) => LIMB_TYPE[l] === t));
   }
 
   livingEnemies(): EnemyState[] {
@@ -1173,6 +1308,10 @@ export class Game {
     const s = this.displayStats(card);
     if (s.cost > this.combat.energy) return 'Not enough energy.';
     if (s.bioCost > this.biomass) return 'Not enough biomass.';
+    const t = cardSlot(card.defId);
+    if (this.slotOf(card.uid) < 0 && t !== 'any' && LIMBS.every((l) => LIMB_TYPE[l] !== t || this.isDisabled(l))) {
+      return `Your ${t === 'arm' ? 'arms are' : t === 'leg' ? 'legs are' : 'head is'} gone.`;
+    }
     if ((card.defId === 'donor' || card.defId === 'flask') && this.combat.hand.length < 2) return 'No other card in hand.';
     return null;
   }
@@ -1219,7 +1358,7 @@ export class Game {
     return this.world === 'kessra' && (c.playedThisTurn + 1) % 3 === 0;
   }
 
-  playCombat(uid: number, targetUid?: number): boolean {
+  playCombat(uid: number, targetUid?: number, limb?: Limb): boolean {
     const c = this.combat;
     if (!c || this.phase !== 'combat') return false;
     const card = c.hand.find((h) => h.uid === uid);
@@ -1240,10 +1379,13 @@ export class Game {
       }
     }
 
+    const acting = this.limbOfCard(card);
     c.energy -= s.cost;
     this.payBiomass(s.bioCost);
     c.hand = c.hand.filter((h) => h !== card);
     c.discard.push(card);
+    c.healTo = healsChosenLimb(card.defId) ? limb : undefined;
+    c.acting = acting;
 
     const times = this.resonates() ? 2 : 1;
     const chained = c.lastWasAttack;
@@ -1264,7 +1406,7 @@ export class Game {
       c.plateBuffs.set(h.uid, (c.plateBuffs.get(h.uid) ?? 0) + copies);
     }
     if (s.selfHarm > 0) {
-      this.damagePlayer(s.selfHarm, true);
+      this.damagePlayer(s.selfHarm, true, acting);
       if (this.isDead) return true;
     }
     // medic cards are used up
@@ -1348,8 +1490,12 @@ export class Game {
     this.afterResolve(card, s, kills, targetTagged ? taggedBefore : 0);
     if (s.triage > 0) c.triage = (c.triage ?? 0) + s.triage;
     c.energy += s.energy;
-    if (s.heal > 0) this.healPlayer(s.heal);
-    if (s.draw > 0) this.drawCombat(s.draw);
+    if (s.heal > 0) this.healPlayer(s.heal, c.healTo);
+    if (s.draw > 0) {
+      const p = c.pendingPick;
+      if (p?.kind === 'redraw') p.times += s.draw;
+      else if (!p) c.pendingPick = { kind: 'redraw', source: card.uid, times: s.draw };
+    }
     if (s.drain > 0 && dealt > 0) this.gainBiomass(Math.floor(dealt * s.drain / 100));
     if (s.empower > 0 && c.hand.length > 0) {
       c.pendingEmpower = { amount: (c.pendingEmpower?.amount ?? 0) + s.empower };
@@ -1417,6 +1563,8 @@ export class Game {
     for (let i = 0; i < n && c.hand.length < 10; i++) {
       const patch: CardInstance = { uid: this.nextUid++, defId: 'clot', genes: [], temp: true };
       c.hand.push(patch);
+      const empty = LIMBS.findIndex((l, j) => !this.isDisabled(l) && !this.slotCard(j));
+      if (empty >= 0) c.slots[empty] = patch.uid;
       this.emit({ type: 'printed', uid: patch.uid, defId: 'clot' });
     }
   }
@@ -1454,7 +1602,7 @@ export class Game {
   pickCard(uid: number): boolean {
     const c = this.combat;
     const p = c?.pendingPick;
-    if (!c || !p) return false;
+    if (!c || !p || p.kind === 'redraw') return false;
     const target = c.hand.find((h) => h.uid === uid);
     const source = this.combatDeck.find((o) => o.uid === p.source);
     if (!target || !source || target === source) return false;
@@ -1520,7 +1668,7 @@ export class Game {
       if (back > 0) {
         this.emit({ type: 'reflect', amount: back });
         // reflected light goes straight through plating
-        this.damagePlayer(back, true);
+        this.damagePlayer(back, true, this.combat?.acting ?? 'head');
         if (this.isDead) return dealt;
       }
     }
@@ -1563,6 +1711,7 @@ export class Game {
       split,
     };
     c.enemies.push(e);
+    this.chooseAim(e);
     this.emit({ type: 'summon', uid: e.uid });
     return true;
   }
@@ -1587,7 +1736,7 @@ export class Game {
       if (intent.attack) {
         const hits = intent.hits ?? 1;
         for (let h = 0; h < hits; h++) {
-          this.damagePlayer(this.intentDamage(e));
+          this.damagePlayer(this.intentDamage(e), false, e.target ?? 'head');
           if (this.isDead) return;
         }
       }
@@ -1612,15 +1761,11 @@ export class Game {
   }
 
   /** One hit on the player. Plating cuts every single hit by its full value, and is not used up. */
-  private damagePlayer(amount: number, pierce = false) {
+  private damagePlayer(amount: number, pierce = false, limb: Limb = 'head') {
     const blocked = pierce ? 0 : Math.min(this.playerBlock, amount);
     const taken = amount - blocked;
-    this.hp -= taken;
-    this.emit({ type: 'playerHit', amount: taken, blocked });
-    if (this.hp <= 0) {
-      this.die();
-      return;
-    }
+    this.hitLimb(limb, taken, blocked);
+    if (this.isDead) return;
     const c = this.combat;
     if (!c) return;
     if (taken > 0) {
@@ -1644,22 +1789,61 @@ export class Game {
     }
   }
 
-  private damagePlayerRaw(amount: number) {
-    this.hp -= amount;
-    this.emit({ type: 'playerHit', amount, blocked: 0 });
-    if (this.hp <= 0) this.die();
+  private damagePlayerRaw(amount: number, limb: Limb = 'head') {
+    if (amount < 0) {
+      this.healPlayer(-amount);
+      return;
+    }
+    this.hitLimb(limb, amount, 0);
+  }
+
+  /**
+   * Damage lands on a limb. A limb already gone passes it to the head. A limb that drops to 0 is torn off
+   * (or, with Clinging Flesh, holds at 1), and what is left of the hit goes on to the head.
+   */
+  private hitLimb(limb: Limb, taken: number, blocked: number) {
+    let l = limb;
+    if (l !== 'head' && this.isDisabled(l)) l = 'head';
+    this.emit({ type: 'playerHit', amount: taken, blocked, limb: l });
+    if (taken <= 0) return;
+    let rest = taken;
+    if (l !== 'head') {
+      const b = this.body[l];
+      const floor = this.hasBoon('clinging') ? 1 : 0;
+      const cut = Math.min(rest, Math.max(0, b.hp - floor));
+      b.hp -= cut;
+      rest -= cut;
+      if (b.hp <= 0) this.loseLimb(l);
+      if (rest <= 0) return;
+    }
+    this.body.head.hp -= rest;
+    if (this.body.head.hp <= 0) this.die();
+  }
+
+  private loseLimb(l: Limb) {
+    this.emit({ type: 'limbLost', limb: l });
+    const c = this.combat;
+    if (!c) return;
+    const i = LIMBS.indexOf(l);
+    const card = this.slotCard(i);
+    if (card) {
+      c.hand = c.hand.filter((h) => h !== card);
+      c.discard.push(card);
+    }
+    c.slots[i] = null;
+    for (const e of this.livingEnemies()) if (e.target === l) this.chooseAim(e);
   }
 
   private die() {
     if (this.hasBoon('heart') && !this.heartUsed) {
       this.heartUsed = true;
-      this.hp = Math.ceil(this.maxHp * 0.3);
-      this.emit({ type: 'heal', amount: this.hp });
+      this.body.head.hp = Math.ceil(this.body.head.max * 0.3);
+      this.emit({ type: 'heal', amount: this.body.head.hp });
       this.emit({ type: 'whisper', text: 'Something behind your heart kicks once, hard. You are not done.' });
       return;
     }
     this.rememberHeirloom();
-    this.hp = 0;
+    this.body.head.hp = 0;
     this.phase = 'dead';
     this.combat = null;
   }
@@ -1716,10 +1900,47 @@ export class Game {
     this.phase = 'reward';
   }
 
-  private healPlayer(amount: number) {
-    const before = this.hp;
-    this.hp = Math.min(this.maxHp, this.hp + amount);
-    if (this.hp > before) this.emit({ type: 'heal', amount: this.hp - before });
+  /** Heal a chosen limb, or else the most damaged ones first (by share of their integrity). */
+  private healPlayer(amount: number, limb?: Limb) {
+    if (limb) {
+      const got = this.healLimb(limb, amount);
+      if (got > 0) this.emit({ type: 'heal', amount: got });
+      return;
+    }
+    let left = amount;
+    let total = 0;
+    while (left > 0) {
+      const hurt = LIMBS.filter((l) => this.body[l].hp < this.body[l].max);
+      if (!hurt.length) break;
+      const l = hurt.sort((a, b) => this.body[a].hp / this.body[a].max - this.body[b].hp / this.body[b].max)[0];
+      const got = this.healLimb(l, left);
+      left -= got;
+      total += got;
+    }
+    if (total > 0) this.emit({ type: 'heal', amount: total });
+  }
+
+  /** Heal one limb; returns how much it took. A torn-off limb above 0 works again. */
+  private healLimb(l: Limb, amount: number): number {
+    const b = this.body[l];
+    const was = b.hp <= 0;
+    const got = Math.max(0, Math.min(amount, b.max - b.hp));
+    b.hp += got;
+    if (was && b.hp > 0) {
+      this.emit({ type: 'limbBack', limb: l });
+      this.message = `Your ${LIMB_NAME[l]} knits back together.`;
+      if (this.combat) this.fillOne(LIMBS.indexOf(l));
+    }
+    return got;
+  }
+
+  /** A limb back mid-fight gets a card at once. */
+  private fillOne(i: number) {
+    const c = this.combat!;
+    if (this.slotCard(i)) return;
+    const card = this.drawFor(i);
+    c.slots[i] = card ? card.uid : null;
+    if (card) c.hand.push(card);
   }
 
   private payBiomass(amount: number) {
@@ -1752,8 +1973,8 @@ export class Game {
       v: SAVE_VERSION,
       rngState: this.rng.exportState(),
       cloneNo: this.cloneNo,
-      hp: this.hp,
-      maxHp: this.maxHp,
+      body: this.body,
+      limbGain: this.limbGain,
       biomass: this.biomass,
       combatDeck: this.combatDeck,
       surveyDeck: this.surveyDeck,
@@ -1823,8 +2044,8 @@ export class Game {
       if (d?.v !== SAVE_VERSION) return null;
       const g = new Game(0, d.cloneNo, meta);
       g.rng.importState(d.rngState);
-      g.hp = d.hp;
-      g.maxHp = d.maxHp;
+      g.body = d.body;
+      g.limbGain = d.limbGain ?? null;
       g.biomass = d.biomass;
       g.combatDeck = d.combatDeck;
       g.surveyDeck = d.surveyDeck;

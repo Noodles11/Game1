@@ -2528,3 +2528,166 @@ body {
   line-height: 1;
   background: var(--flesh-dark);
 }
+
+/* ---------------------------------------------------------------- body */
+.hand.slots > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.slot {
+  position: relative;
+  aspect-ratio: 5 / 8;
+  max-height: 132px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  border: 2px dashed var(--line);
+  border-radius: 3px;
+  color: var(--bone-dim);
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+
+.slot .limbicon {
+  width: 60%;
+  opacity: 0.5;
+}
+
+.slot.lost {
+  border-color: #5e1f17;
+  background:
+    repeating-linear-gradient(-45deg, rgba(218, 65, 43, 0.1) 0 5px, transparent 5px 10px),
+    #1a1213;
+  color: #8a4a40;
+}
+
+.slot.lost .limbicon {
+  opacity: 0.35;
+}
+
+.slot .x {
+  position: absolute;
+  top: 34%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-style: normal;
+  font-size: 46px;
+  line-height: 1;
+  color: var(--flesh);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+.bodybar {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: -2px;
+}
+
+.seg {
+  position: relative;
+  height: 22px;
+  padding: 0;
+  overflow: hidden;
+  background: var(--flesh-dark);
+  border: 2px solid var(--paper);
+  border-radius: 0;
+  box-shadow: 2px 2px 0 var(--flesh);
+}
+
+.seg .fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background:
+    repeating-linear-gradient(-45deg, rgba(19, 17, 19, 0.2) 0 3px, transparent 3px 6px),
+    var(--flesh);
+  transition: width 250ms ease;
+}
+
+.seg.head {
+  border-color: var(--sodium);
+}
+
+.seg b {
+  position: relative;
+  display: block;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--paper);
+  text-shadow: 1px 1px 0 var(--ink), -1px -1px 0 var(--ink), 1px -1px 0 var(--ink), -1px 1px 0 var(--ink);
+}
+
+.seg b small {
+  font-size: 8px;
+  opacity: 0.8;
+}
+
+.seg.lost {
+  background: #1a1213;
+  border-color: #5e1f17;
+  box-shadow: none;
+}
+
+.seg.lost b {
+  color: var(--flesh);
+}
+
+.seg.target {
+  border-color: var(--toxin);
+  box-shadow: 0 0 0 2px var(--toxin), 2px 2px 0 var(--toxin);
+  animation: breathe 1.2s ease-in-out infinite;
+}
+
+.seg.aimed {
+  box-shadow: 2px 2px 0 var(--flesh), 0 -3px 0 #ff6a55 inset;
+}
+
+.seg .aim {
+  position: absolute;
+  top: -1px;
+  right: 2px;
+  font-style: normal;
+  font-size: 10px;
+  color: #ff6a55;
+  text-shadow: 1px 1px 0 var(--ink);
+}
+
+.intent .tgt {
+  color: #b3261e;
+  font-weight: 700;
+  font-size: 10px;
+}
+
+.limbpick {
+  display: grid;
+  gap: 8px;
+}
+
+.limbpick .gene {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.limbpick .limbicon {
+  width: 30px;
+  color: var(--paper);
+}
+
+.seg .lbl {
+  font-style: normal;
+  font-size: 7px;
+  letter-spacing: 0.04em;
+  margin-right: 3px;
+  opacity: 0.85;
+}
+
+.seg {
+  height: 24px;
+}
