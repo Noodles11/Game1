@@ -80,11 +80,8 @@ export function passageSlot(i: number, n: number): number {
 
 /** Glow colour for what lies down a passage. */
 const KIND_COLOR: Record<string, string> = {
-  fight: INK.flesh, elite: '#e0606c', locker: INK.sodium, pod: INK.cryo,
-  event: INK.signal, boss: '#bfeef5', hidden: '#5b6a72',
-};
-const KIND_GLYPH: Record<string, string> = {
-  fight: '✕', elite: '✖', locker: '▣', pod: '◍', event: '✦', boss: '◉', hidden: '?',
+  fight: '#ff3b2f', elite: '#ff2fa8', locker: '#ffc21a', pod: '#16e0c8',
+  event: '#9b5cff', boss: '#f4fbff', hidden: '#3a3f44',
 };
 
 /** Horizontal slot (0..1) for enemy i of n. Shared with the DOM overlay. */
@@ -585,6 +582,50 @@ export class Stage {
     return true;
   }
 
+  /** A small status diode in a housing. `color` null: broken, dark, with a dying flicker now and then. */
+  private drawDiode(x: number, y: number, r: number, color: string | null, seed: number) {
+    const { ctx } = this;
+    ctx.fillStyle = '#0b0d10';
+    ctx.strokeStyle = '#6b6f73';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(x - r * 2.2, y - r * 1.5, r * 4.4, r * 3, r * 0.6);
+    ctx.fill();
+    ctx.stroke();
+    const flicker = color === null && Math.sin(this.time * 13 + seed * 5) > 0.97 && noise(this.time * 3 + seed) > 0.2;
+    const lit = color ?? (flicker ? '#fff1c8' : null);
+    if (lit) {
+      const pulse = color ? 0.8 + 0.2 * Math.sin(this.time * 3 + seed) : 0.6;
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r * 6);
+      g.addColorStop(0, lit);
+      g.addColorStop(0.2, lit);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = 0.55 * pulse;
+      ctx.fillStyle = g;
+      ctx.fillRect(x - r * 6, y - r * 6, r * 12, r * 12);
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = lit ?? '#1c1f22';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+    // cracked glass on a dead one
+    if (!color) {
+      ctx.strokeStyle = '#6b6f73';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x - r * 0.7, y - r * 0.5);
+      ctx.lineTo(x + r * 0.1, y + r * 0.1);
+      ctx.lineTo(x + r * 0.6, y - r * 0.6);
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.beginPath();
+      ctx.arc(x - r * 0.35, y - r * 0.35, r * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   /** Is this segment a fork: the end of a world corridor with passages beyond? */
   private isFork(i: number): boolean {
     const g = this.game;
@@ -720,21 +761,8 @@ export class Stage {
       ctx.strokeStyle = INK.bone;
       ctx.lineWidth = Math.max(1, u * 0.012);
       sketchStroke(ctx, mouth(1, 0), 970 + i * 13 + this.boil, 1.6, false);
-      // sign above the mouth
-      const sy = fy - ah - u * 0.16;
-      const r = Math.max(9, u * 0.1);
-      ctx.fillStyle = '#0b0f13';
-      ctx.beginPath();
-      ctx.arc(x, sy, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = col;
-      ctx.lineWidth = 2;
-      ctx.stroke();
-      ctx.fillStyle = col;
-      ctx.font = `600 ${Math.round(r * 1.1)}px system-ui, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(KIND_GLYPH[kind], x, sy + 1);
+      // a diode above the threshold: its colour is all you get. A broken one tells you nothing.
+      this.drawDiode(x, fy - ah - u * 0.08, Math.max(3, u * 0.045), kind === 'hidden' ? null : col, i + node.id * 7);
     });
     if (bio.backdrop) {
       // crystal spires between and beside the mouths, flora at their feet

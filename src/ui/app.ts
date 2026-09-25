@@ -89,7 +89,7 @@ const HINTS: Record<string, string> = {
   'node-pod': 'Splice pod — spend biomass to evolve your cards.',
   'node-event': 'Event — something strange. A choice, and a log that stays with you forever.',
   'node-boss': 'Boss — the heart of this world. Beat it for a permanent boon.',
-  'node-hidden': 'Unknown — play Field Notes to see what waits down this passage.',
+  'node-hidden': 'Dead diode — no telling what waits down there. Field Notes can read it.',
 };
 
 const NODE_GLYPH: Record<string, string> = {
@@ -615,9 +615,12 @@ export class App {
       const kind = hidden ? 'hidden' : n.kind;
       const cls = ['mnode', kind, reach.has(n.id) ? 'reach' : '', n.visited ? 'visited' : '', g.mapNode === n.id ? 'here' : '', n.flared ? 'flared' : '']
         .filter(Boolean).join(' ');
-      const label = hidden ? 'Unknown' : NODE_NAME[n.kind];
-      return `<span class="${cls}" data-hint="node-${kind}" role="img"
-        style="left:${p.x}%;top:${p.y}%" aria-label="${label}">${hidden ? '?' : NODE_GLYPH[n.kind]}</span>`;
+      // Only places you have been are named. Elsewhere: the diode colour, or a dead diode.
+      const known = n.visited || n.kind === 'boss';
+      const label = known ? NODE_NAME[n.kind] : 'Unvisited';
+      const inner = known ? NODE_GLYPH[n.kind] : `<i class="diode ${kind}"></i>`;
+      return `<span class="${cls} ${known ? '' : 'unknown'}" ${known ? `data-hint="node-${kind}"` : ''} role="img"
+        style="left:${p.x}%;top:${p.y}%" aria-label="${label}">${inner}</span>`;
     }).join('');
     return `
       <div class="maptitle"><b>${w.name}</b> ${w.subtitle}</div>
@@ -632,17 +635,12 @@ export class App {
     const n = paths.length;
     const dirs = n === 1 ? ['ahead'] : n === 2 ? ['left', 'right'] : n === 3 ? ['left', 'middle', 'right'] : ['far left', 'left', 'right', 'far right'];
     const width = (PASSAGE_SPREAD / n) * 100;
-    return paths.map((node, i) => {
-      const hidden = node.hidden && !node.visited;
-      const kind = hidden ? 'hidden' : node.kind;
-      const name = hidden ? 'Unknown' : NODE_NAME[node.kind];
-      return `
-        <button class="passage ${kind} ${node.flared ? 'flared' : ''}" data-act="passage" data-node="${node.id}"
-          style="left:${passageSlot(i, n) * 100}%;width:${width}%" aria-label="${dirs[i]}: ${name}">
+    // No labels: only the diode above each threshold, drawn in the scene. Work out what the colours mean.
+    return paths.map((node, i) => `
+        <button class="passage ${node.flared ? 'flared' : ''}" data-act="passage" data-node="${node.id}"
+          style="left:${passageSlot(i, n) * 100}%;width:${width}%" aria-label="${dirs[i]} passage">
           <span class="pdir">${dirs[i]}</span>
-          <span class="pname" data-hint="node-${kind}">${name}</span>
-        </button>`;
-    }).join('');
+        </button>`).join('');
   }
 
   private foeHtml(e: EnemyState, x: number, width: number, targeting: boolean): string {

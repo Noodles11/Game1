@@ -500,7 +500,7 @@ export class Game {
       if (def.action === 'notes') {
         const found = this.mapAhead(2).filter((n) => n.hidden).length;
         for (const n of this.mapAhead(2)) n.hidden = false;
-        this.message = 'The echo maps the caves ahead.';
+        this.message = 'Your notes decode the dead diodes ahead.';
         this.emit({ type: 'reveal' });
         if (def.action === 'notes') this.fieldNotes(found);
       } else if (def.action === 'flare') {
@@ -681,7 +681,7 @@ export class Game {
   private enterMap() {
     this.phase = 'map';
     this.newSurveyTurn();
-    this.message = 'The tunnel forks. Choose a passage. Flare and Field Notes show what waits down them.';
+    this.message = 'The tunnel forks. A diode glows above each passage. Choose one.';
   }
 
   get currentNode(): MapNode | null {
