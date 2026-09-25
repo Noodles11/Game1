@@ -2719,3 +2719,32 @@ body {
   content: ' · lit';
   color: var(--flesh);
 }
+
+/* a slot with cards piled underneath */
+.card[data-depth] {
+  box-shadow: 3px 3px 0 var(--ink), 6px -5px 0 -2px var(--paper-2), 6px -5px 0 0 var(--ink);
+}
+
+.card[data-depth='3'] {
+  box-shadow: 3px 3px 0 var(--ink), 6px -5px 0 -2px var(--paper-2), 6px -5px 0 0 var(--ink),
+    11px -10px 0 -4px var(--paper-2), 11px -10px 0 -2px var(--ink);
+}
+
+.card[data-depth]::before {
+  content: attr(data-depth);
+  position: absolute;
+  z-index: 2;
+  right: 3px;
+  bottom: 3px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  display: grid;
+  place-items: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 3px;
+}

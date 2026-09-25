@@ -90,8 +90,11 @@ export interface CombatState {
   acting?: Limb;
   /** Clot Patches printed per tagged death, this fight (Triage). */
   triage?: number;
-  /** The card (uid) in each body slot, in LIMBS order. Stale once the card leaves the hand. */
-  slots: (number | null)[];
+  /**
+   * Each body slot holds a stack of cards (uids), top first. Unplayed cards stay; each turn a new card goes
+   * underneath. Only the top card can be played. Entries go stale once a card leaves the hand.
+   */
+  stacks: number[][];
   /** Every enemy is dead, but a card's effect still waits on the player. The fight ends once it resolves. */
   victoryPending?: boolean;
 }
@@ -102,11 +105,13 @@ export interface Offer {
 }
 
 export const MAX_ENERGY = 4;
+/** Most cards one body slot can pile up. */
+export const STACK_MAX = 3;
 export const MAX_OXYGEN = 3;
 export const SURVEY_HAND = 4;
 export const FORCE_COST = 4;
 const VIEW_RANGE = 4;
-const SAVE_VERSION = 4;
+const SAVE_VERSION = 5;
 const MAX_ENEMIES = 4;
 const ELITE_BIOMASS = 6;
 
@@ -345,11 +350,13 @@ export class Game {
     }
   }
 
+  /**
+   * A new stretch of walking (after a fight, a fork, a sector start, a gateway room):
+   * oxygen refills, unused survey cards stay in hand, and the hand is topped up. Footsteps alone change nothing.
+   */
   private newSurveyTurn() {
-    this.sDiscard.push(...this.sHand);
-    this.sHand = [];
     this.oxygen = this.maxOxygen;
-    this.drawSurvey(SURVEY_HAND);
+    this.drawSurvey(Math.max(0, SURVEY_HAND - this.sHand.length));
     this.message = this.exploreHint();
   }
 
@@ -416,7 +423,9 @@ export class Game {
       else this.phase = 'won';
       return true;
     }
-    this.newSurveyTurn();
+    // the walk between fights is one room: only a new sector refills
+    if (!this.world && this.pos === this.sector2Start) this.newSurveyTurn();
+    else this.message = this.exploreHint();
     return true;
   }
 
@@ -489,8 +498,11 @@ export class Game {
     const def = cardDef(card);
     this.oxygen -= s.cost;
     this.payBiomass(s.bioCost);
-    this.sHand = this.sHand.filter((c) => c !== card);
-    if (isMedic(def.id)) {
+    const tool = !!def.keywords?.includes('tool');
+    if (!tool) this.sHand = this.sHand.filter((c) => c !== card);
+    if (tool) {
+      // tools stay in hand; only oxygen limits them
+    } else if (isMedic(def.id)) {
       this.surveyDeck = this.surveyDeck.filter((c) => c !== card);
       this.emit({ type: 'consumed', uid: card.uid, defId: card.defId });
     } else this.sDiscard.push(card);
@@ -737,7 +749,7 @@ export class Game {
     this.phase = 'explore';
     this.emit({ type: 'step' });
     if (here.whisper) this.emit({ type: 'whisper', text: here.whisper });
-    this.newSurveyTurn();
+    this.message = this.exploreHint();
     return true;
   }
 
@@ -922,7 +934,7 @@ export class Game {
     this.eventId = null;
     this.eventResult = null;
     this.phase = 'explore';
-    this.newSurveyTurn();
+    this.message = this.exploreHint();
   }
 
   // ---------------------------------------------------------------- boons
@@ -1155,7 +1167,7 @@ export class Game {
       platers: [],
       played: [],
       pendingPick: null,
-      slots: LIMBS.map(() => null),
+      stacks: LIMBS.map(() => []),
     };
     this.playerStatus = freshStatus();
     this.corpses = [];
@@ -1219,19 +1231,30 @@ export class Game {
     for (const e of this.livingEnemies()) this.chooseAim(e);
   }
 
-  /** The card in a body slot, if it is still in hand. */
-  slotCard(i: number): CardInstance | undefined {
+  /** The cards in a body slot's stack, top first (only those still in hand). */
+  stack(i: number): CardInstance[] {
     const c = this.combat;
-    const uid = c?.slots[i];
-    return uid == null ? undefined : c!.hand.find((h) => h.uid === uid);
+    if (!c) return [];
+    c.stacks[i] = c.stacks[i].filter((uid) => c.hand.some((h) => h.uid === uid));
+    return c.stacks[i].map((uid) => c.hand.find((h) => h.uid === uid)!);
   }
 
-  /** Slot index of a card in hand, or -1 for a spare. */
+  /** The top card of a body slot: the one you can play. */
+  slotCard(i: number): CardInstance | undefined {
+    return this.stack(i)[0];
+  }
+
+  /** Slot index of a card in hand (at any depth), or -1 for a spare. */
   slotOf(uid: number): number {
     const c = this.combat;
     if (!c) return -1;
-    const i = c.slots.indexOf(uid);
-    return i >= 0 && this.slotCard(i) ? i : -1;
+    return c.stacks.findIndex((st, i) => st.includes(uid) && this.stack(i).some((h) => h.uid === uid));
+  }
+
+  /** Is this card under another one in its stack? */
+  buried(uid: number): boolean {
+    const i = this.slotOf(uid);
+    return i >= 0 && this.slotCard(i)?.uid !== uid;
   }
 
   private fitsSlot(card: CardInstance, i: number): boolean {
@@ -1259,18 +1282,29 @@ export class Game {
     return c.draw.splice(k, 1)[0];
   }
 
+  /** Each working limb gets one new card, under whatever it still holds (a stack holds at most STACK_MAX). */
   private fillSlots() {
     const c = this.combat!;
     LIMBS.forEach((l, i) => {
       if (this.isDisabled(l)) {
-        c.slots[i] = null;
+        this.clearStack(i);
         return;
       }
-      if (this.slotCard(i)) return;
+      if (this.stack(i).length >= STACK_MAX) return;
       const card = this.drawFor(i);
-      c.slots[i] = card ? card.uid : null;
-      if (card) c.hand.push(card);
+      if (!card) return;
+      c.stacks[i].push(card.uid);
+      c.hand.push(card);
     });
+  }
+
+  private clearStack(i: number) {
+    const c = this.combat!;
+    for (const card of this.stack(i)) {
+      c.hand = c.hand.filter((h) => h !== card);
+      c.discard.push(card);
+    }
+    c.stacks[i] = [];
   }
 
   /** Extra cards beyond the five slots (Spare Cell). They still need a working limb of their kind. */
@@ -1279,19 +1313,17 @@ export class Game {
     for (let i = 0; i < n && c.draw.length; i++) c.hand.push(c.draw.pop()!);
   }
 
-  /** Redraw one body slot (draw effects). */
+  /** Draw effects: a new card goes on top of the chosen slot's stack. */
   pickSlot(i: number): boolean {
     const c = this.combat;
     const p = c?.pendingPick;
     if (!c || p?.kind !== 'redraw' || this.isDisabled(LIMBS[i])) return false;
-    const old = this.slotCard(i);
-    if (old) {
-      c.hand = c.hand.filter((h) => h !== old);
-      c.discard.push(old);
-    }
+    this.stack(i);
     const card = this.drawFor(i, false);
-    c.slots[i] = card ? card.uid : null;
-    if (card) c.hand.push(card);
+    if (card) {
+      c.stacks[i].unshift(card.uid);
+      c.hand.push(card);
+    }
     p.times--;
     if (p.times <= 0) c.pendingPick = null;
     if (!c.pendingPick && c.victoryPending) this.endFightWhenResolved();
@@ -1320,6 +1352,7 @@ export class Game {
     const s = this.displayStats(card);
     if (s.cost > this.combat.energy) return 'Not enough energy.';
     if (s.bioCost > this.biomass) return 'Not enough biomass.';
+    if (this.buried(card.uid)) return 'It is under another card. Play the top one first.';
     const t = cardSlot(card.defId);
     if (this.slotOf(card.uid) < 0 && t !== 'any' && LIMBS.every((l) => LIMB_TYPE[l] !== t || this.isDisabled(l))) {
       return `Your ${t === 'arm' ? 'arms are' : t === 'leg' ? 'legs are' : 'head is'} gone.`;
@@ -1576,7 +1609,7 @@ export class Game {
       const patch: CardInstance = { uid: this.nextUid++, defId: 'clot', genes: [], temp: true };
       c.hand.push(patch);
       const empty = LIMBS.findIndex((l, j) => !this.isDisabled(l) && !this.slotCard(j));
-      if (empty >= 0) c.slots[empty] = patch.uid;
+      if (empty >= 0) c.stacks[empty] = [patch.uid];
       this.emit({ type: 'printed', uid: patch.uid, defId: 'clot' });
     }
   }
@@ -1733,9 +1766,7 @@ export class Game {
     if (!c || this.phase !== 'combat') return;
     c.pendingEmpower = null;
     c.pendingPick = null;
-    const holds = (h: CardInstance) => !!cardDef(h).keywords?.includes('hold');
-    c.discard.push(...c.hand.filter((h) => !holds(h)));
-    c.hand = c.hand.filter(holds);
+    // unplayed cards stay where they are: on top of their stacks
     this.tickStatus(this.playerStatus);
 
     for (const e of [...c.enemies]) {
@@ -1836,13 +1867,7 @@ export class Game {
     this.emit({ type: 'limbLost', limb: l });
     const c = this.combat;
     if (!c) return;
-    const i = LIMBS.indexOf(l);
-    const card = this.slotCard(i);
-    if (card) {
-      c.hand = c.hand.filter((h) => h !== card);
-      c.discard.push(card);
-    }
-    c.slots[i] = null;
+    this.clearStack(LIMBS.indexOf(l));
     for (const e of this.livingEnemies()) if (e.target === l) this.chooseAim(e);
   }
 
@@ -1951,8 +1976,9 @@ export class Game {
     const c = this.combat!;
     if (this.slotCard(i)) return;
     const card = this.drawFor(i);
-    c.slots[i] = card ? card.uid : null;
-    if (card) c.hand.push(card);
+    if (!card) return;
+    c.stacks[i] = [card.uid];
+    c.hand.push(card);
   }
 
   private payBiomass(amount: number) {

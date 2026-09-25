@@ -68,7 +68,8 @@ const HINTS: Record<string, string> = {
   allies: 'Chorus — gives every other enemy strength. Kill it first.',
   summon: 'Shed — calls another enemy into the fight.',
   biocost: 'Biomass price — paid every time you play this card. Not enough biomass, no play.',
-  hold: 'Hold — stays in your hand at the end of your turn. It takes one of your draw slots.',
+  tool: 'Tool — stays in your hand after use. Only oxygen limits it.',
+  stack: 'Stack — unplayed cards stay in their slot. Each turn a new card goes underneath (up to 3). Only the top card can be played.',
   sibling: 'Sibling — printed from one line. Every Imprint one copy gets, all copies get, and new copies arrive already grown.',
   unstable: 'Unstable — the result is random, and one time in three it is a defect.',
   body: 'Body — each limb has its own integrity. Arms and legs torn off at 0 (their slot goes dark until healed). The head at 0 is death. Tap a limb to see it.',
@@ -808,7 +809,8 @@ export class App {
     const c = g.combat!;
     const out = LIMBS.map((l, i) => {
       const card = g.slotCard(i);
-      if (card) return render(card);
+      const depth = g.stack(i).length;
+      if (card) return depth > 1 ? render(card).replace('<button class="', `<button data-depth="${Math.min(depth, 3)}" class="`) : render(card);
       const lost = g.isDisabled(l);
       return `<div class="slot ${lost ? 'lost' : 'empty'}" data-hint="${lost ? 'limblost' : 'slot'}">
         ${limbIcon(LIMB_TYPE[l])}<span>${LIMB_SHORT[l]}</span>${lost ? '<i class="x">✕</i>' : ''}</div>`;
@@ -874,7 +876,7 @@ export class App {
         return `<button class="slot empty" data-act="redraw-slot" data-slot="${i}">${limbIcon(LIMB_TYPE[l])}<span>${LIMB_SHORT[l]}</span></button>`;
       });
       return `
-        <p class="hint"><strong>Choose a slot to redraw${n > 1 ? ` (${n} left)` : ''}.</strong> <em>Its card goes to the discard; a new one takes its place.</em></p>
+        <p class="hint"><strong>Choose a slot to draw into${n > 1 ? ` (${n} left)` : ''}.</strong> <em>The new card goes on top of that stack.</em></p>
         <div class="hand slots">${slots.join('')}</div>
         ${this.bodyBarHtml()}
         <div class="bar"><span class="spacer"></span><button class="btn" data-act="skip-pick">skip</button></div>`;

@@ -10,7 +10,7 @@ export type SurveyAction = 'cut' | 'stim' | 'flare' | 'notes';
  * unstable: its result can be a defect.
  * consume: removes a card from the deck for the rest of the run.
  */
-export type Keyword = 'hold' | 'sibling' | 'unstable' | 'consume';
+export type Keyword = 'hold' | 'sibling' | 'unstable' | 'consume' | 'tool';
 
 /** Stats a pod mutation (or a surgery) can change. */
 export type MutStat = 'damage' | 'block' | 'hits' | 'cost' | 'tag' | 'heal' | 'draw' | 'lifesteal' | 'bioCost';

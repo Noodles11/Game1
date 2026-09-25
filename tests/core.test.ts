@@ -1626,3 +1626,53 @@ describe('one continuous path', () => {
     expect(g.segments[d].revealed).toBe(true);
   });
 });
+
+describe('slot stacks and walks', () => {
+  it('unplayed cards stay on top; each turn a new card goes underneath, up to 3', () => {
+    const g = new Game(5);
+    fightIn(g, ['crawler'], null);
+    const tops = [0, 1, 2, 3, 4].map((i) => g.slotCard(i)!.uid);
+    g.combat!.enemies[0].hp = 999;
+    g.playerBlock = 99;
+    g.endTurn();
+    for (let i = 0; i < 5; i++) {
+      expect(g.slotCard(i)!.uid).toBe(tops[i]);
+      expect(g.stack(i).length).toBe(2);
+    }
+    g.playerBlock = 99;
+    g.endTurn();
+    g.playerBlock = 99;
+    g.endTurn();
+    expect(g.stack(1).length).toBeLessThanOrEqual(3);
+    const buried = g.stack(1)[1];
+    expect(g.combatPlayable(buried)).toMatch(/under another card/);
+    // playing the top card brings the next one up
+    g.combat!.energy = 9;
+    const top = g.slotCard(1)!;
+    g.playCombat(top.uid, g.combat!.enemies[0].uid);
+    expect(g.slotCard(1)!.uid).toBe(buried.uid);
+  });
+
+  it('footsteps do not refill oxygen or redraw survey cards; a fight does', () => {
+    const g = new Game(5);
+    const cutter = g.sHand.find((c) => c.defId === 'cutter')!;
+    g.oxygen = 1;
+    g.advance();
+    expect(g.oxygen).toBe(1);
+    expect(g.sHand).toContain(cutter);
+    walkToFight(g);
+    fightToEnd(g);
+    g.finishHarvest();
+    g.takeOffer(null);
+    expect(g.oxygen).toBe(g.maxOxygen);
+  });
+
+  it('Plasma Cutter is a tool: it stays in hand after use', () => {
+    const g = new Game(3);
+    const cutter = g.sHand.find((c) => c.defId === 'cutter')!;
+    expect(g.playSurvey(cutter.uid)).toBe(true); // the locker next to the start
+    g.takeOffer(null);
+    expect(g.sHand).toContain(cutter);
+    expect(g.oxygen).toBe(2);
+  });
+});

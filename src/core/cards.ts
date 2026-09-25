@@ -139,14 +139,14 @@ export const CARDS: Record<string, CardDef> = {
   },
   unscarred: {
     id: 'unscarred', name: 'Unscarred Edge', deck: 'combat', glyph: '⟋',
-    base: { cost: 1, damage: 4 }, keywords: ['hold'],
+    base: { cost: 1, damage: 4 },
     rules: ['Each round you lose no integrity while it is held: +2 damage this fight. A hit wipes it.', 'Every 3 clean rounds: Imprint +1 damage.'],
     brief: 'Clean rounds: +2. Grows.',
     flavor: 'A print that has never been cut. It intends to stay that way.',
   },
   scartissue: {
     id: 'scartissue', name: 'Scar Tissue', deck: 'combat', glyph: '≈',
-    base: { cost: 1, block: 3 }, keywords: ['hold'],
+    base: { cost: 1, block: 3 },
     rules: ['Each time you lose integrity while it is held: Imprint +1 on another random tactic.'],
     brief: 'Hurt while held: imprint a tactic.',
     flavor: 'Every wound rewrites a line of you. Some lines come back stronger.',
@@ -256,7 +256,7 @@ export const CARDS: Record<string, CardDef> = {
   // ---- Survey deck ----
   cutter: {
     id: 'cutter', name: 'Plasma Cutter', deck: 'survey', action: 'cut', glyph: '⟋',
-    base: { cost: 1 },
+    base: { cost: 1 }, keywords: ['tool'],
     flavor: 'Through wreckage. Through anything.',
   },
   stim: {
@@ -545,7 +545,7 @@ const ACTION_TEXT: Record<string, string> = {
 };
 
 const KEYWORD_TEXT: Record<string, string> = {
-  hold: 'Hold.', sibling: 'Sibling.', unstable: 'Unstable.', consume: '',
+  hold: 'Hold.', sibling: 'Sibling.', unstable: 'Unstable.', consume: '', tool: '',
 };
 
 /**

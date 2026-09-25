@@ -81,3 +81,15 @@ and shown on the intent (→ L.ARM). If that limb is torn off before the enemy a
 - Saves from before this change can't be loaded. The game starts a new clone.
 
 Bot sim (120 runs): 67 clear Kessra, 38 die in the lab, 15 die in Kessra (10 cleared before this change).
+
+## Stacks and walks (later change)
+
+- **Slot stacks:** unplayed cards stay in their slot at the end of a turn. Each turn a new card goes **under** them,
+  up to 3 per slot. Only the top card can be played; the card under it comes up when it is played. Draw effects put the
+  new card **on top** of a chosen stack. Hold was removed from Unscarred Edge and Scar Tissue (every card stays now).
+- **The walk between fights is one room:** oxygen refills and the survey hand is topped up to 4 only after a fight,
+  at each world fork, at the start of lab sector 2, and after a gateway room. Footsteps change nothing.
+  Unused survey cards stay in hand.
+- **Plasma Cutter is a tool:** it stays in hand after use; oxygen is its only limit.
+
+Bot sim after this change (120 runs): 54 clear Kessra, 52 die in the lab, 14 die in Kessra.
