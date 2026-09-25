@@ -102,6 +102,8 @@ void main() {
 }`;
 
 export class Print {
+  private texW = 0;
+  private texH = 0;
   private constructor(
     private gl: WebGLRenderingContext,
     private tex: WebGLTexture,
@@ -155,7 +157,15 @@ export class Print {
     const h = gl.canvas.height;
     gl.viewport(0, 0, w, h);
     gl.bindTexture(gl.TEXTURE_2D, this.tex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, src);
+    // Allocate the texture once per size, then only overwrite its pixels. Re-allocating every frame
+    // makes some mobile GPUs pile up memory until the page stalls.
+    if (this.texW !== src.width || this.texH !== src.height) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, src);
+      this.texW = src.width;
+      this.texH = src.height;
+    } else {
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGB, gl.UNSIGNED_BYTE, src);
+    }
     gl.uniform2f(this.loc.res, w, h);
     gl.uniform1f(this.loc.dpr, dpr);
     gl.uniform1f(this.loc.time, time);

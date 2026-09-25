@@ -39,6 +39,8 @@ export type GameEvent =
   | { type: 'splice'; uid: number }
   | { type: 'empower'; uid: number; amount: number }
   | { type: 'warp' }
+  /** Old path behind the player was dropped: indices shifted down by n. */
+  | { type: 'trim'; n: number }
   /** The ship leaves the lab for a world: play the launch and crash. */
   | { type: 'launch'; world: string }
   | { type: 'resonate' }
@@ -196,6 +198,8 @@ export class Game {
   mapGates: Record<number, { kind: SecretKind; used: boolean }> = {};
   /** Second Heart already spent this run. */
   heartUsed = false;
+  /** Path segments dropped from behind the player so far (keeps scenery seeds stable). */
+  segOffset = 0;
 
   // Survey (explore) piles
   sDraw: CardInstance[] = [];
@@ -742,6 +746,14 @@ export class Game {
       fork.cleared = true;
     }
     this.segments.push(...this.buildNode(node));
+    // Keep only a little path behind you: the rest can never be seen again.
+    const drop = this.pos - 2;
+    if (drop > 0) {
+      this.segments.splice(0, drop);
+      this.pos -= drop;
+      this.segOffset += drop;
+      this.emit({ type: 'trim', n: drop });
+    }
     this.pos++;
     const here = this.segments[this.pos];
     here.revealed = true;
@@ -2050,6 +2062,7 @@ export class Game {
       boonOffers: this.boonOffers,
       retainBlock: this.retainBlock,
       seenEvents: this.seenEvents,
+      segOffset: this.segOffset,
       secret: this.secret,
       secretFight: this.secretFight,
       mapGates: this.mapGates,
@@ -2125,6 +2138,7 @@ export class Game {
       g.boonOffers = d.boonOffers;
       g.retainBlock = d.retainBlock;
       g.seenEvents = d.seenEvents;
+      g.segOffset = d.segOffset ?? 0;
       g.secret = d.secret ?? null;
       g.secretFight = d.secretFight ?? null;
       g.mapGates = d.mapGates ?? {};

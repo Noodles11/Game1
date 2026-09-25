@@ -7,6 +7,10 @@ import { fillPoly, noise, sketchStroke, type Pt } from './sketch';
 
 const NEAR = 0.22;
 const DRAW_AHEAD = 8;
+/** Stop adding particles past this many alive at once. */
+const MAX_PARTICLES = 400;
+/** Frames a cached outline is reused before it is rebuilt. */
+const RIM_REFRESH = 5;
 
 interface EnemyFx {
   flash: number;
@@ -128,6 +132,9 @@ export class Stage {
   private sil = document.createElement('canvas');
   /** The solid part of the object only: soft glows and hazes are left out of the rim. */
   private mask = document.createElement('canvas');
+  /** Cached rims by object, rebuilt every few frames. */
+  private rims = new Map<string, { canvas: HTMLCanvasElement; built: number; used: number; w: number; h: number }>();
+  private frame = 0;
   private print: Print | null;
   private plain: CanvasRenderingContext2D | null = null;
 
@@ -175,6 +182,11 @@ export class Stage {
         this.walkT = 0;
         break;
       case 'bump': this.bump = 1; break;
+      case 'trim':
+        this.cam -= e.n;
+        this.camFrom -= e.n;
+        this.camTo -= e.n;
+        break;
       case 'enemyHit': {
         this.fx(e.uid).flash = 1;
         this.shake = Math.max(this.shake, 0.35);
@@ -220,7 +232,7 @@ export class Stage {
   }
 
   private splatter(x: number, y: number, color: string, n: number) {
-    if (this.reduced) return;
+    if (this.reduced || this.particles.length > MAX_PARTICLES) return;
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const speed = 40 + Math.random() * 160;
@@ -274,7 +286,7 @@ export class Stage {
   }
 
   private sparks(x: number, y: number, color: string, n: number, rise = false) {
-    if (this.reduced) return;
+    if (this.reduced || this.particles.length > MAX_PARTICLES) return;
     for (let i = 0; i < n; i++) {
       const a = -Math.PI / 2 + (Math.random() - 0.5) * (rise ? 1.2 : Math.PI * 2);
       const speed = 30 + Math.random() * 90;
@@ -388,6 +400,11 @@ export class Stage {
   private draw() {
     const { ctx } = this;
     const g = this.game;
+    this.frame++;
+    if (this.frame % 60 === 0) {
+      // forget outlines of things no longer on screen
+      for (const [k, r] of this.rims) if (this.frame - r.used > 60) this.rims.delete(k);
+    }
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     if (this.cinema && this.drawCinema(this.cinema.t)) {
       if (this.print) this.print.render(this.buf, this.dpr, this.time);
@@ -420,6 +437,11 @@ export class Stage {
 
     const inFight = g.phase === 'combat' || g.phase === 'harvest';
     if (inFight) this.drawFight();
+    else if (this.enemyFx.size || this.enemyPos.size) {
+      // forget the last fight's creatures once it is over
+      this.enemyFx.clear();
+      this.enemyPos.clear();
+    }
     this.drawParticles();
     ctx.restore();
     this.drawOverlays(inFight);
@@ -436,24 +458,43 @@ export class Stage {
    * Draw something with a sticker outline: an ink rim, then a coloured rim, then the thing itself.
    * (x, y, w, h) is a box in CSS pixels that must contain the drawing.
    */
-  private outlined(x: number, y: number, w: number, h: number, color: string, alpha: number, draw: () => void) {
-    const d = this.dpr;
+  private outlined(x: number, y: number, w: number, h: number, color: string, alpha: number, draw: () => void, id = '') {
     const pad = 6;
-    const pw = Math.ceil((w + pad * 2) * d);
-    const ph = Math.ceil((h + pad * 2) * d);
-    if (alpha <= 0.02 || w <= 0 || h <= 0 || pw * ph > 6e6) {
+    const pw = Math.ceil(w + pad * 2);
+    const ph = Math.ceil(h + pad * 2);
+    if (alpha <= 0.02 || w <= 0 || h <= 0 || pw * ph > 2e6) {
       draw();
       return;
     }
-    for (const c of [this.layer, this.sil, this.mask]) {
+    // The rim is costly to build (a pixel read-back), so build it at 1× and reuse it for a few frames.
+    // keyed by the object, not its position: it can move and scale while its rim is reused
+    const key = `${id || `${Math.round(x)}:${Math.round(y)}`}:${color}`;
+    let rim = this.rims.get(key);
+    const grown = rim ? Math.abs(pw / rim.w - 1) > 0.12 : true;
+    if (!rim || grown || this.frame - rim.built >= RIM_REFRESH) {
+      rim = { canvas: rim?.canvas ?? document.createElement('canvas'), built: this.frame, used: this.frame, w: pw, h: ph };
+      this.buildRim(rim.canvas, x, y, pw, ph, pad, color, draw);
+      this.rims.set(key, rim);
+    }
+    rim.used = this.frame;
+    const main = this.ctx;
+    const prev = main.globalAlpha;
+    main.globalAlpha = prev * alpha;
+    main.drawImage(rim.canvas, 0, 0, rim.w, rim.h, x - pad, y - pad, pw, ph);
+    main.globalAlpha = prev;
+    draw();
+  }
+
+  /** Draw the object off-screen, keep its solid pixels, and grow them into an ink rim and a coloured rim. */
+  private buildRim(out: HTMLCanvasElement, x: number, y: number, pw: number, ph: number, pad: number, color: string, draw: () => void) {
+    for (const c of [this.layer, this.sil, out]) {
       if (c.width < pw) c.width = pw;
       if (c.height < ph) c.height = ph;
     }
     const lc = this.layer.getContext('2d', { willReadFrequently: true })!;
-    const sc = this.sil.getContext('2d')!;
     lc.setTransform(1, 0, 0, 1, 0, 0);
-    lc.clearRect(0, 0, pw, ph);
-    lc.setTransform(d, 0, 0, d, (pad - x) * d, (pad - y) * d);
+    lc.clearRect(0, 0, this.layer.width, this.layer.height);
+    lc.setTransform(1, 0, 0, 1, pad - x, pad - y);
     const main = this.ctx;
     this.ctx = lc;
     try {
@@ -461,34 +502,35 @@ export class Stage {
     } finally {
       this.ctx = main;
     }
-    // Threshold the drawing's alpha: only solid pixels make the silhouette.
+    // only solid pixels make the silhouette: soft glows and hazes are left out
     const img = lc.getImageData(0, 0, pw, ph);
     const px = img.data;
     for (let i = 3; i < px.length; i += 4) px[i] = px[i] > 150 ? 255 : 0;
     const mc = this.mask.getContext('2d')!;
+    if (this.mask.width < pw) this.mask.width = pw;
+    if (this.mask.height < ph) this.mask.height = ph;
     mc.clearRect(0, 0, this.mask.width, this.mask.height);
     mc.putImageData(img, 0, 0);
-    const rim = (r: number, col: string) => {
+    const sc = this.sil.getContext('2d')!;
+    const oc = out.getContext('2d')!;
+    oc.setTransform(1, 0, 0, 1, 0, 0);
+    oc.clearRect(0, 0, out.width, out.height);
+    for (const [r, col] of [[4.5, INK.void], [2.5, color]] as [number, string][]) {
       sc.setTransform(1, 0, 0, 1, 0, 0);
       sc.globalCompositeOperation = 'source-over';
-      sc.clearRect(0, 0, pw, ph);
-      for (let k = 0; k < 12; k++) {
-        const a = (k / 12) * Math.PI * 2;
-        sc.drawImage(this.mask, 0, 0, pw, ph, Math.cos(a) * r * d, Math.sin(a) * r * d, pw, ph);
+      sc.clearRect(0, 0, this.sil.width, this.sil.height);
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        sc.drawImage(this.mask, 0, 0, pw, ph, Math.cos(a) * r, Math.sin(a) * r, pw, ph);
       }
       sc.globalCompositeOperation = 'source-in';
       sc.fillStyle = col;
       sc.fillRect(0, 0, pw, ph);
       sc.globalCompositeOperation = 'source-over';
-      main.drawImage(this.sil, 0, 0, pw, ph, x - pad, y - pad, pw / d, ph / d);
-    };
-    const prev = main.globalAlpha;
-    main.globalAlpha = prev * alpha;
-    rim(4.5, INK.void);
-    rim(2.5, color);
-    main.globalAlpha = prev;
-    main.drawImage(this.layer, 0, 0, pw, ph, x - pad, y - pad, pw / d, ph / d);
+      oc.drawImage(this.sil, 0, 0, pw, ph, 0, 0, pw, ph);
+    }
   }
+
 
   /**
    * Launch and crash, in four beats: the jump (star streaks), atmospheric entry (a planet rushing up through fire),
@@ -941,7 +983,7 @@ export class Stage {
   /** A decoration seed unique to this section of this corridor. */
   private segSeed(i: number): number {
     const g = this.game;
-    return i * 101 + (g.mapNode ?? 0) * 977 + (g.world ? 13 : 0) + 7;
+    return (i + g.segOffset) * 101 + (g.world ? 13 : 0) + 7;
   }
 
   /** Far caves: a dark gradient, two ridges of crystal spires, drifting motes. */
@@ -1081,7 +1123,7 @@ export class Stage {
         ctx.ellipse(x, cy, rx * (0.9 - k * 0.18), ry * (0.9 - k * 0.18), Math.sin(t) * 0.2, t, t + Math.PI * 1.3);
         ctx.stroke();
       }
-    });
+    }, "gate");
   }
 
   /** A rock mound with big crystals growing out of it. */
@@ -1552,8 +1594,9 @@ export class Stage {
     const dim = this.fog(zMid);
     // things you can use or fight get a highlight rim, fading with distance
     const rim = 1 - dim * 0.7;
-    const box = (x: number, w: number, h: number, draw: () => void, color: string, on = true) =>
-      on ? this.outlined(x - w / 2, fy - h, w, h + u * 0.12, color, rim, draw) : draw();
+    const sid = `s${i + this.game.segOffset}`;
+    const box = (x: number, w: number, h: number, draw: () => void, color: string, on = true, id = sid) =>
+      on ? this.outlined(x - w / 2, fy - h, w, h + u * 0.12, color, rim, draw, id) : draw();
     switch (seg.feature) {
       case 'crate': {
         const x = this.cx + u * 0.42;
@@ -1583,7 +1626,7 @@ export class Stage {
           this.groundShadow(x, fy, sz * 0.5, 1 - dim);
           box(x, sz * 2.4, sz * 1.9, () => drawCreature(this.ctx, id, x, fy, u * 0.8, {
             t: this.time, boil: this.boil, flash: 0, lunge: 0, dead: 0, seed: k + i, dim: Math.min(0.9, dim + 0.25),
-          }), INK.flesh);
+          }), INK.flesh, true, `${sid}:${k}`);
         });
         break;
       }
@@ -1940,10 +1983,12 @@ export class Stage {
       this.groundShadow(x, foot, u * size * 0.55, 1 - fx.dead);
       const bw = u * size * 2.6;
       const bh = u * size * 2.1;
+      // while it lunges, flashes or swells its shape changes fast: rebuild the rim every frame then
+      const moving = fx.lunge > 0.01 || fx.flash > 0.01 || fx.dead > 0;
       this.outlined(x - bw / 2, foot - bh, bw, bh + u * 0.15, '#fbf8f2', 1, () =>
         drawCreature(this.ctx, e.defId, x, foot, u, {
           t: this.time + i * 1.3, boil: this.boil, flash: fx.flash, lunge: fx.lunge, dead: fx.dead, seed: i + 1, dim: 0,
-        }));
+        }), moving ? '' : `foe${e.uid}`);
     });
     // enemies removed before their burst played (a splitter makes room for its halves): burst now
     for (const [uid, fx] of this.enemyFx) {

@@ -1676,3 +1676,20 @@ describe('slot stacks and walks', () => {
     expect(g.oxygen).toBe(2);
   });
 });
+
+describe('long runs stay small', () => {
+  it('a world path keeps only a few segments behind the player', () => {
+    const g = new Game(3);
+    g.phase = 'mainframe';
+    g.chooseWorld('kessra');
+    for (let k = 0; k < 5; k++) {
+      const node = g.passages()[0];
+      node.kind = 'locker';
+      g.travel(node.id);
+      for (let j = 0; j < 10 && (g.phase as string) === 'explore'; j++) g.advance();
+      expect(g.pos).toBeLessThanOrEqual(8);
+    }
+    expect(g.segOffset).toBeGreaterThan(0);
+    expect(g.segments.length).toBeLessThan(10);
+  });
+});
