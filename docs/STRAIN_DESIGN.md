@@ -649,4 +649,4 @@ Defaults are chosen so work can start. Change any of them.
 | Q7 | Can the player return to a cleared planet in the same run? | No. Forward only. |
 | Q8 | Title? | *Reprint: Strain* (working). |
 | Q9 | Keep the halftone print pass on the overworld, or battles only? | Light preset everywhere, stronger on battle intros. |
-| Q10 | Separate codebase or same repo? | Same repo, second entry point, shared render utils. |
+| Q10 | Separate codebase or same repo? | **Decided: separate repo** (`Strain`). S1–S4 built there. |
