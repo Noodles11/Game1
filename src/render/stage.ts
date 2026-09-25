@@ -122,6 +122,8 @@ export class Stage {
   /** Scratch canvases for outlining objects: the object alone, and its silhouette. */
   private layer = document.createElement('canvas');
   private sil = document.createElement('canvas');
+  /** The solid part of the object only: soft glows and hazes are left out of the rim. */
+  private mask = document.createElement('canvas');
   private print: Print | null;
   private plain: CanvasRenderingContext2D | null = null;
 
@@ -414,11 +416,11 @@ export class Stage {
       draw();
       return;
     }
-    for (const c of [this.layer, this.sil]) {
+    for (const c of [this.layer, this.sil, this.mask]) {
       if (c.width < pw) c.width = pw;
       if (c.height < ph) c.height = ph;
     }
-    const lc = this.layer.getContext('2d')!;
+    const lc = this.layer.getContext('2d', { willReadFrequently: true })!;
     const sc = this.sil.getContext('2d')!;
     lc.setTransform(1, 0, 0, 1, 0, 0);
     lc.clearRect(0, 0, pw, ph);
@@ -430,13 +432,20 @@ export class Stage {
     } finally {
       this.ctx = main;
     }
+    // Threshold the drawing's alpha: only solid pixels make the silhouette.
+    const img = lc.getImageData(0, 0, pw, ph);
+    const px = img.data;
+    for (let i = 3; i < px.length; i += 4) px[i] = px[i] > 150 ? 255 : 0;
+    const mc = this.mask.getContext('2d')!;
+    mc.clearRect(0, 0, this.mask.width, this.mask.height);
+    mc.putImageData(img, 0, 0);
     const rim = (r: number, col: string) => {
       sc.setTransform(1, 0, 0, 1, 0, 0);
       sc.globalCompositeOperation = 'source-over';
       sc.clearRect(0, 0, pw, ph);
       for (let k = 0; k < 12; k++) {
         const a = (k / 12) * Math.PI * 2;
-        sc.drawImage(this.layer, 0, 0, pw, ph, Math.cos(a) * r * d, Math.sin(a) * r * d, pw, ph);
+        sc.drawImage(this.mask, 0, 0, pw, ph, Math.cos(a) * r * d, Math.sin(a) * r * d, pw, ph);
       }
       sc.globalCompositeOperation = 'source-in';
       sc.fillStyle = col;
@@ -450,6 +459,23 @@ export class Stage {
     rim(2.5, color);
     main.globalAlpha = prev;
     main.drawImage(this.layer, 0, 0, pw, ph, x - pad, y - pad, pw / d, ph / d);
+  }
+
+  /** A soft dark pool on the floor under a creature. */
+  private groundShadow(x: number, fy: number, r: number, strength: number) {
+    if (strength <= 0) return;
+    const { ctx } = this;
+    ctx.save();
+    ctx.translate(x, fy);
+    ctx.scale(1, 0.22);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    g.addColorStop(0, `rgba(5,4,6,${0.7 * strength})`);
+    g.addColorStop(1, 'rgba(5,4,6,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   /** A translucent sheet of haze over the whole view. */
@@ -1389,6 +1415,7 @@ export class Stage {
         list.forEach((id, k) => {
           const x = this.cx + (enemySlot(k, list.length) - 0.5) * u * 1.4;
           const sz = (CREATURE_SIZE[id] ?? 1) * u * 0.8;
+          this.groundShadow(x, fy, sz * 0.5, 1 - dim);
           box(x, sz * 2.4, sz * 1.9, () => drawCreature(this.ctx, id, x, fy, u * 0.8, {
             t: this.time, boil: this.boil, flash: 0, lunge: 0, dead: 0, seed: k + i, dim: Math.min(0.9, dim + 0.25),
           }), INK.flesh);
@@ -1745,6 +1772,7 @@ export class Stage {
         return;
       }
       const foot = this.H * 0.94;
+      this.groundShadow(x, foot, u * size * 0.55, 1 - fx.dead);
       const bw = u * size * 2.6;
       const bh = u * size * 2.1;
       this.outlined(x - bw / 2, foot - bh, bw, bh + u * 0.15, '#fbf8f2', 1, () =>
