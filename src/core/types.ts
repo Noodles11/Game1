@@ -2,7 +2,7 @@ import type { Aim, Limb } from './body';
 
 export type DeckKind = 'combat' | 'survey';
 
-export type SurveyAction = 'override' | 'cut' | 'scan' | 'pry' | 'stim' | 'flare' | 'notes';
+export type SurveyAction = 'cut' | 'stim' | 'flare' | 'notes';
 
 /**
  * hold: stays in hand at end of turn (takes a draw slot).

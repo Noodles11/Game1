@@ -104,7 +104,7 @@ export const MAX_OXYGEN = 3;
 export const SURVEY_HAND = 4;
 export const FORCE_COST = 4;
 const VIEW_RANGE = 4;
-const SAVE_VERSION = 3;
+const SAVE_VERSION = 4;
 const MAX_ENEMIES = 4;
 const ELITE_BIOMASS = 6;
 
@@ -364,12 +364,12 @@ export class Game {
   exploreHint(): string {
     const f = this.front;
     if (!f) return '';
-    if (!f.revealed) return 'Darkness ahead. Scan it, or walk in blind.';
+    if (!f.revealed) return 'Darkness ahead. Light it with a Flare, or walk in blind.';
     if (f.cleared) return 'The way is open.';
     switch (f.feature) {
-      case 'door': return `Sealed hatch. Play Override, or force it (−${FORCE_COST} integrity).`;
+      case 'door': return `Sealed hatch. Play Plasma Cutter, or force it (−${FORCE_COST} integrity).`;
       case 'debris': return `Wreckage. Play Plasma Cutter, or squeeze through (−${FORCE_COST}).`;
-      case 'crate': return 'A supply locker. Pry it open, or walk past.';
+      case 'crate': return 'A supply locker. Cut it open with Plasma Cutter, or walk past.';
       case 'pod': return 'A splice pod glows ahead. Pour biomass in to mutate a card.';
       case 'surgery': return 'A surgery bay. It cuts defects and drawbacks out of cards, for biomass.';
       case 'enemies': return 'Something waits ahead. Advance to fight.';
@@ -451,22 +451,27 @@ export class Game {
     if (this.phase === 'map') {
       if (s.cost > this.oxygen) return 'Not enough oxygen.';
       switch (def.action) {
-        case 'scan': case 'notes': return this.mapAhead(2).some((n) => n.hidden) ? null : 'Nothing hidden ahead.';
+        case 'notes': return this.mapAhead(2).some((n) => n.hidden) ? null : 'Nothing hidden ahead.';
         case 'flare': return this.mapAhead(1).some((n) => n.kind === 'fight' || n.kind === 'elite') ? null : 'No fight ahead to light.';
         case 'stim': return this.hp < this.maxHp ? null : 'Integrity already full.';
-        case 'override': case 'cut': case 'pry': return 'Nothing to use that on here.';
+        case 'cut': return 'Nothing to cut here.';
         default: return null;
       }
     }
     if (this.phase !== 'explore') return 'Not now.';
     if (s.cost > this.oxygen) return 'Not enough oxygen.';
     switch (def.action) {
-      case 'override': return this.front?.revealed && this.front.feature === 'door' && !this.front.cleared ? null : 'No sealed hatch ahead.';
-      case 'cut': return this.front?.revealed && this.front.feature === 'debris' && !this.front.cleared ? null : 'No wreckage ahead.';
-      case 'pry': return this.interactable('crate') >= 0 ? null : 'No locker in reach.';
+      case 'cut': return this.cutTarget() ? null : 'Nothing to cut open here.';
       case 'stim': return this.hp < this.maxHp ? null : 'Integrity already full.';
       default: return null;
     }
+  }
+
+  /** What Plasma Cutter would open right now: a hatch or wreckage ahead first, else a locker in reach. */
+  private cutTarget(): 'front' | 'crate' | null {
+    const f = this.front;
+    if (f?.revealed && !f.cleared && (f.feature === 'door' || f.feature === 'debris')) return 'front';
+    return this.interactable('crate') >= 0 ? 'crate' : null;
   }
 
   playSurvey(uid: number, limb?: Limb): boolean {
@@ -489,7 +494,7 @@ export class Game {
     this.message = '';
 
     if (this.phase === 'map') {
-      if (def.action === 'scan' || def.action === 'notes') {
+      if (def.action === 'notes') {
         const found = this.mapAhead(2).filter((n) => n.hidden).length;
         for (const n of this.mapAhead(2)) n.hidden = false;
         this.message = 'The echo maps the caves ahead.';
@@ -508,18 +513,16 @@ export class Game {
     }
 
     switch (def.action) {
-      case 'override':
-        this.front!.cleared = true;
-        this.message = 'The hatch sighs open. The air behind it is stale and sweet.';
-        break;
       case 'cut':
-        this.front!.cleared = true;
-        this.message = 'Metal glows, drips, parts.';
-        break;
-      case 'scan':
-        this.light(3, 0);
-        this.message = 'The echo returns. Shapes, ahead.';
-        this.emit({ type: 'reveal' });
+        if (this.cutTarget() === 'front') {
+          const door = this.front!.feature === 'door';
+          this.front!.cleared = true;
+          this.message = door ? 'The lock glows, drips, and lets go. The hatch sighs open.' : 'Metal glows, drips, parts.';
+        } else {
+          const i = this.interactable('crate');
+          this.segments[i].cleared = true;
+          this.openLoot();
+        }
         break;
       case 'notes': {
         const ahead = this.segments.slice(this.pos + 1, this.pos + 4);
@@ -534,19 +537,13 @@ export class Game {
         this.message = 'Red light floods the corridor.';
         this.emit({ type: 'reveal' });
         break;
-      case 'pry': {
-        const i = this.interactable('crate');
-        this.segments[i].cleared = true;
-        this.openLoot();
-        break;
-      }
       default:
         break;
     }
     if (s.heal > 0) this.healPlayer(s.heal, healsChosenLimb(def.id) ? limb : undefined);
     if (s.biomass > 0) this.gainBiomass(s.biomass);
     if (s.draw > 0) this.drawSurvey(s.draw);
-    if (this.phase === 'explore' && def.action !== 'override' && def.action !== 'cut' && !this.message) {
+    if (this.phase === 'explore' && def.action !== 'cut' && !this.message) {
       this.message = this.exploreHint();
     }
     return true;
@@ -674,7 +671,7 @@ export class Game {
   private enterMap() {
     this.phase = 'map';
     this.newSurveyTurn();
-    this.message = 'The tunnel forks. Choose a passage. Echo Scan and Flare show what waits down them.';
+    this.message = 'The tunnel forks. Choose a passage. Flare and Field Notes show what waits down them.';
   }
 
   get currentNode(): MapNode | null {

@@ -118,25 +118,11 @@ const PLATES: Record<string, Plate> = {
     emblem: line('M8 32 L40 32') + P('M40 14 L58 46 L22 46 Z', `fill="${PAPER}" stroke="${INK}" stroke-width="2.5"`) +
       `<path d="M50 32 L92 18" stroke="${RED}" stroke-width="3"/><path d="M50 34 L92 32" stroke="${MUSTARD}" stroke-width="3"/><path d="M50 36 L92 46" stroke="${TEAL}" stroke-width="3"/>`,
   },
-  override: {
-    color: TEAL, sun: [66, 20],
-    emblem: P('M28 14 L62 14 L62 52 L28 52 Z') + `<rect x="33" y="19" width="24" height="12" fill="${TEAL}"/>` +
-      [0, 1, 2].map((r) => [0, 1, 2].map((c) => `<rect x="${34 + c * 8}" y="${35 + r * 5}" width="5" height="3" fill="${PAPER}"/>`).join('')).join(''),
-  },
   cutter: {
     color: MUSTARD, sun: [72, 24],
     emblem: P('M16 44 L50 30 L54 38 L20 52 Z') + P('M52 32 L58 30 L60 36 L54 38 Z') +
       P('M60 33 Q78 24 90 30 Q78 38 60 35 Z', `fill="${MUSTARD}" stroke="${INK}" stroke-width="1.5"`) +
       `<path d="M66 33 L84 30" stroke="${PAPER}" stroke-width="1.5"/>`,
-  },
-  scan: {
-    color: TEAL, sun: [58, 20],
-    emblem: P('M26 20 Q46 22 50 44 Z') + line('M38 32 L30 50 M22 54 L42 54') +
-      `<path d="M56 16 q6 4 4 12 M62 10 q10 8 6 22" fill="none" stroke="${INK}" stroke-width="2"/>`,
-  },
-  pry: {
-    color: MUSTARD, sun: [34, 20],
-    emblem: line('M24 54 L66 14 Q72 10 76 16') + P('M20 50 L28 58 L22 60 L16 54 Z') + hi('M30 46 L62 16'),
   },
   stim: {
     color: GREEN, sun: [50, 28],

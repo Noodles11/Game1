@@ -254,25 +254,10 @@ export const CARDS: Record<string, CardDef> = {
   },
 
   // ---- Survey deck ----
-  override: {
-    id: 'override', name: 'Override', deck: 'survey', action: 'override', glyph: '⌬',
-    base: { cost: 1 },
-    flavor: 'Old codes. They still answer to your voice.',
-  },
   cutter: {
     id: 'cutter', name: 'Plasma Cutter', deck: 'survey', action: 'cut', glyph: '⟋',
     base: { cost: 1 },
     flavor: 'Through wreckage. Through anything.',
-  },
-  scan: {
-    id: 'scan', name: 'Echo Scan', deck: 'survey', action: 'scan', glyph: '◎',
-    base: { cost: 1 },
-    flavor: 'Ping the dark. Something pings back.',
-  },
-  pry: {
-    id: 'pry', name: 'Pry Bar', deck: 'survey', action: 'pry', glyph: '⌙',
-    base: { cost: 1 },
-    flavor: 'Supply lockers. Some still hold supplies.',
   },
   stim: {
     id: 'stim', name: 'Suture Gel', deck: 'survey', action: 'stim', glyph: '✚',
@@ -314,7 +299,8 @@ export const STARTER_COMBAT = [
   'brace', 'brace', 'stomp', 'stomp',
   'spike', 'echo', 'adrenal',
 ];
-export const STARTER_SURVEY = ['override', 'override', 'cutter', 'cutter', 'scan', 'pry', 'stim'];
+/** Starter survey deck: one opener, one heal. */
+export const STARTER_SURVEY = ['cutter', 'stim'];
 export const REWARD_COMBAT = [
   'scatter', 'spike', 'bonesaw', 'stomp', 'adrenal', 'echo', 'hook', 'flense', 'harpoon', 'graft', 'jack', 'siphon',
   'clot', 'clot', 'poultice', 'poultice', 'knit', 'triage', 'triage',
@@ -322,7 +308,7 @@ export const REWARD_COMBAT = [
 ];
 /** Cards that only come from secret rooms. */
 export const SECRET_CARDS = ['apex', 'lazarus', 'overwrite'];
-export const REWARD_SURVEY = ['flare', 'scan', 'stim', 'pry', 'override', 'cutter', 'beacon', 'notes', 'dressing', 'dressing', 'knitter'];
+export const REWARD_SURVEY = ['flare', 'stim', 'beacon', 'notes', 'dressing', 'dressing', 'knitter'];
 
 // ---- Genes: how cards evolve ----
 
@@ -552,10 +538,7 @@ export function splice(card: CardInstance, geneId: string): CardInstance {
 }
 
 const ACTION_TEXT: Record<string, string> = {
-  override: 'Open a hatch ahead.',
-  cut: 'Cut wreckage ahead.',
-  scan: 'Reveal and light 3 ahead.',
-  pry: 'Open a locker.',
+  cut: 'Open a hatch, wreckage or locker.',
   stim: '',
   flare: 'Light 2 ahead.',
   notes: 'Reveal and light 3 ahead.',

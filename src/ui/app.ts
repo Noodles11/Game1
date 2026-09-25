@@ -84,11 +84,11 @@ const HINTS: Record<string, string> = {
   gate: 'Gateway — a door in the wall only a Pineal Gate lets you see. Behind it: rare cards at a price, a rare fight, a restoring vat, or a shortcut.',
   'node-fight': 'Fight — a short corridor with regular enemies at the end.',
   'node-elite': 'Elite — one tough enemy. Rewards a card from this world, plus biomass.',
-  'node-locker': 'Locker — supplies. Bring a Pry Bar.',
+  'node-locker': 'Locker — supplies. Bring a Plasma Cutter.',
   'node-pod': 'Splice pod — spend biomass to evolve your cards.',
   'node-event': 'Event — something strange. A choice, and a log that stays with you forever.',
   'node-boss': 'Boss — the heart of this world. Beat it for a permanent boon.',
-  'node-hidden': 'Unknown — play Echo Scan to see what waits down this passage.',
+  'node-hidden': 'Unknown — play Field Notes to see what waits down this passage.',
 };
 
 const NODE_GLYPH: Record<string, string> = {
@@ -932,7 +932,7 @@ export class App {
         <p>You wake in a vat on a ship that should be empty. You are a copy of someone who died out here.
         So were the others. Walk the corridor. Find the signal.</p>
         <ul class="rules">
-          <li><b class="s">survey</b>Blue cards cost oxygen. They open hatches, cut wreckage, light the dark and pry lockers.</li>
+          <li><b class="s">survey</b>Blue cards cost oxygen. Plasma Cutter opens hatches, wreckage and lockers; others heal, light the dark and scout ahead.</li>
           <li><b class="c">tactics</b>Amber cards cost energy. Read what each enemy intends, then strike first.</li>
           <li><b class="b">biomass</b>Nothing heals you but what you kill. Eat it to mend, or render it to splice genes into your cards at a pod.</li>
           <li><b class="v">splice</b>Some cards reach further: empower another card in your hand, or turn the damage they deal straight into biomass.</li>

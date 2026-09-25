@@ -58,7 +58,7 @@ describe('card evolution', () => {
 
   it('rejects genes that do not fit', () => {
     expect(() => splice(card('brace'), 'serrated')).toThrow();
-    expect(() => splice(card('override'), 'chitin')).toThrow();
+    expect(() => splice(card('cutter'), 'chitin')).toThrow();
     expect(genesFor(card('brace')).map((g) => g.id)).not.toContain('serrated');
   });
 
@@ -87,16 +87,36 @@ describe('exploration', () => {
     expect(g.pos).toBe(3);
   });
 
-  it('spends oxygen and validates survey cards', () => {
+  it('starts with exactly one Plasma Cutter and one heal in the survey deck', () => {
     const g = new Game(3);
-    g.sHand = [...g.surveyDeck.filter((c) => c.defId === 'scan')];
-    const scan = g.sHand[0];
-    expect(g.playSurvey(scan.uid)).toBe(true);
-    expect(g.oxygen).toBe(2);
-    const override = g.surveyDeck.find((c) => c.defId === 'override')!;
-    g.sHand = [override];
-    expect(g.playSurvey(override.uid)).toBe(false);
-    expect(g.message).toMatch(/No sealed hatch/);
+    expect(g.surveyDeck.map((c) => c.defId).sort()).toEqual(['cutter', 'stim']);
+  });
+
+  it('Plasma Cutter opens hatches, wreckage and lockers, and spends oxygen', () => {
+    const g = new Game(3);
+    const cutter = g.surveyDeck.find((c) => c.defId === 'cutter')!;
+    const fight = g.segments.findIndex((x, i) => x.feature === 'enemies' && g.segments[i - 1].feature !== 'crate');
+    g.pos = fight - 1;
+    g.segments[fight].revealed = true;
+    g.sHand = [cutter];
+    expect(g.playSurvey(cutter.uid)).toBe(false);
+    expect(g.message).toMatch(/Nothing to cut/);
+    for (const kind of ['door', 'debris'] as const) {
+      const i = g.segments.findIndex((s) => s.feature === kind && !s.cleared);
+      g.pos = i - 1;
+      g.segments[i].revealed = true;
+      g.oxygen = 3;
+      g.sHand = [cutter];
+      expect(g.playSurvey(cutter.uid)).toBe(true);
+      expect(g.segments[i].cleared).toBe(true);
+      expect(g.oxygen).toBe(2);
+    }
+    const c = g.segments.findIndex((s) => s.feature === 'crate');
+    g.pos = c - 1;
+    g.segments[c].revealed = true;
+    g.sHand = [cutter];
+    expect(g.playSurvey(cutter.uid)).toBe(true);
+    expect(g.phase).toBe('loot');
   });
 });
 
@@ -347,7 +367,7 @@ describe('sectors and modifiers', () => {
     const g = new Game(seed);
     for (let guard = 0; guard < 200 && g.phase !== 'modifier' && g.phase !== 'dead'; guard++) {
       if (g.phase === 'explore') {
-        const pry = g.sHand.find((c) => c.defId === 'pry' && !g.surveyPlayable(c));
+        const pry = g.sHand.find((c) => c.defId === 'cutter' && !g.surveyPlayable(c));
         if (pry) g.playSurvey(pry.uid);
         else if (g.canUsePod()) g.usePod();
         else if (g.front && !g.front.revealed) g.advance();
@@ -474,7 +494,7 @@ function autoplay(g: Game, guardMax = 3000): string {
   for (let guard = 0; guard < guardMax; guard++) {
     switch (g.phase) {
       case 'explore': {
-        const useful = g.sHand.find((c) => ['pry', 'override', 'cut', 'scan', 'stim'].includes(c.defId) && !g.surveyPlayable(c));
+        const useful = g.sHand.find((c) => ['cutter', 'stim'].includes(c.defId) && !g.surveyPlayable(c));
         if (useful) g.playSurvey(useful.uid);
         else if (g.canUsePod()) g.usePod();
         else if (g.front && !g.front.revealed) g.advance();
@@ -605,12 +625,13 @@ describe('worlds: map', () => {
     expect(g.reachable().every((n) => n.row === 1)).toBe(true);
   });
 
-  it('Echo Scan on the map reveals hidden nodes ahead', () => {
+  it('Field Notes on the map reveals hidden nodes ahead', () => {
     const g = new Game(3);
     g.phase = 'mainframe';
     g.chooseWorld('kessra');
     for (const n of g.map!.nodes) if (n.row === 1) n.hidden = true;
-    const scan = g.surveyDeck.find((c) => c.defId === 'scan')!;
+    const scan: CardInstance = { uid: 9950, defId: 'notes', genes: [] };
+    g.surveyDeck.push(scan);
     g.sHand = [scan];
     expect(g.playSurvey(scan.uid)).toBe(true);
     expect(g.map!.nodes.filter((n) => n.row === 1).every((n) => !n.hidden)).toBe(true);
