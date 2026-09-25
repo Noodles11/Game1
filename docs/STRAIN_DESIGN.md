@@ -258,6 +258,8 @@ Optional gates (vaults, side zones) cannot be forced. They are the reason to ret
 1. **Intro.** Enemy slides in from the right, clone from the left. *"A LATTICE CRAWLER blocks the way!"*
 2. **Initiative.** Compare RFX with the enemy's speed. Winner acts first in round 1 only.
    Stalk or a sneak from behind = you always go first, enemy plating 0.
+   **Ambushed** (6.4) = the enemy always goes first, you draw 1 fewer card on turn 1, and you can't flee turn 1.
+   Intro line: *"Something drops from the ceiling!"*
 3. **Player turn.** Draw to hand size. Energy refills. Play cards. End turn.
 4. **Enemy turn.** Each enemy performs its shown intent, one text line each.
 5. Repeat. Intents are always visible (except Orun's Signal twist).
@@ -298,17 +300,18 @@ Enemies target the clone as a whole. No limbs.
 - Portrait screen shows about **11 × 15 tiles**. The map scrolls.
 - Controls: **tap a tile** to path there, or a virtual d-pad (setting). One thumb.
 - Tap an object next to you: context actions and matching exploration cards light up.
-- Walking is free. **No random encounters.** Mobs are visible and move.
+- Walking is free. Most mobs are visible and move. Some hide and **ambush** (6.4). Cleared areas **repopulate** (6.5).
 
 ### 6.2 Pressure
 
-Mobs don't respawn, so grinding is impossible. Pressure comes from:
+Pressure comes from:
 
 - **Oxygen.** Exploration cards cost O₂. O₂ refills at vents, beacons, the ship, and +2 after each won battle.
 - **Hazards.** Cold, acid, radiation tiles cost integrity per step (less with Hide).
 - **The storm.** Each planet has a **storm clock**: after about 600 steps, a front rolls in from the edge.
   Storm zones drain O₂ per step. Mobs in storm zones get +1 tier. Push to the boss, or accept worse fights.
 - **Integrity.** It carries over between battles. Healing is scarce: corpses, medic cards, vents.
+- **Respawns.** Backtracking is never free. Cleared routes fill up again (6.5).
 
 ### 6.3 Map generation
 
@@ -327,6 +330,8 @@ Seeded and deterministic, like the current core.
 | POI | Safe | Wild | Deep | Lair |
 |---|---|---|---|---|
 | Mobs (packs of 1–3) | 2 | 4 | 5 | 2 |
+| Ambush spots | — | 2 | 3 | 1 |
+| Nest | — | 1 (50%) | 1 | — |
 | Elite | — | 1 (50%) | 1 | — |
 | Cache (loot) | 2 | 2 | 2 | 1 |
 | Event | 1 | 1 | 1 | — |
@@ -336,13 +341,15 @@ Seeded and deterministic, like the current core.
 | Gateway (ABR 6+) | — | 1 (50%) | 1 (50%) | — |
 | Boss | — | — | — | 1 |
 
-Per zone type counts. Per planet: ~25 fights, 2–3 elites, 1 boss. About 12–18 minutes.
+Per zone type counts. Per planet: ~25 first-time fights plus respawns, 2–3 elites, 1 boss. About 12–18 minutes.
 
 ### 6.4 Points of interest
 
 | POI | What happens |
 |---|---|
-| **Mob pack** | Roams a small area. Touch it: battle. Some chase on sight (vision cone; RFX lowers detection). |
+| **Mob pack** | Roams a small area. Touch it: battle. Some chase on sight (vision cone; RFX lowers detection). A chaser that touches you **from behind** ambushes you. |
+| **Ambush spot** | A hidden pack. Invisible until spotted. Step next to it unseen: ambush battle (below). |
+| **Nest** | Spawns a new pack in its zone every ~150 steps. Destroy it: a battle vs its guardians, or Plasma Cutter at rating 3+. |
 | **Elite** | Stays put, guards a cache. Reward: a planet card choice + implant. |
 | **Boss lair** | A set-piece arena. Boss fight. Unlocks launch. |
 | **Cache** | Needs Pry Bar or a gate. Gives a card choice, biomass, or an implant. |
@@ -360,7 +367,42 @@ Upgrade site types are always distinct in one ring, so the player can plan a rou
 Splice pod price: **6 + 4 × (somatic points already bought this run)**.
 Printer: **5** biomass. Surgery: **4 + 2 per excise this run**.
 
-### 6.5 Events use trait checks
+### 6.5 Ambushes
+
+Some mobs lie in wait: burrowed in the floor, clinging to ceilings, under water, or dormant among wrecks.
+
+| Planet | Ambushers |
+|---|---|
+| Derelict | Hull Ticks in vents, dormant Custodian Husks |
+| Kessra | Shardlings sealed in crystal, Lattice Crawlers under shard floors |
+| Mireth | Stiltwaders in deep water, Leech Swarms in roots |
+| Orun | Ash Walkers buried in drifts |
+
+- Each ambush spot has a **stealth rating 1–6** (ring + tier, with some spread).
+- **Spotting:** within 2 tiles, you see it if **FOC ÷ 2 ≥ stealth**. It shows as a faint shimmer.
+  Echo Scan, Flare and the *Wet Eye* implant reveal it at any rating.
+- **Unspotted:** stepping next to it starts an **ambush battle** (5.2): enemy first, −1 card on turn 1, no flee turn 1.
+  Dark zones and storm zones add +1 stealth.
+- **Spotted:** walk around it, or play **Stalk** to turn the ambush around: you strike first, its plating is 0.
+- **Payout:** ambush packs drop **+50% biomass**. Hunting them on purpose is a Focus build's reward.
+
+### 6.6 Respawns
+
+Cleared ground does not stay safe.
+
+| Trigger | What returns |
+|---|---|
+| **Resting at a vent** | Every cleared regular pack, except in the vent's own zone. Ambush spots re-arm. |
+| **Nest** | One new pack in its zone every ~150 steps, until the nest is destroyed. |
+| **Storm front** | Zones the storm covers repopulate at once, at **+1 tier**. |
+
+- **Never respawn:** elites, bosses, nest guardians, caches, events.
+- **Respawned packs pay less:** 50% biomass, **no Codons**, no card rewards. Enough to keep a run alive,
+  too little to farm. Since the storm clock keeps running, grinding costs the run.
+- Respawns roll a **new pack** from the zone's pool. Same zone, not always the same enemies.
+- **Beacons** don't trigger respawns. So resting is a choice: heal now, face the route again.
+
+### 6.7 Events use trait checks
 
 Each option lists a trait and a target. Success is certain at or above it, else a chance:
 `chance = 100% − 15% × (target − trait)`.
@@ -373,7 +415,7 @@ Example — *The Humming Geode* (Kessra):
 
 Aberrance options are always the strangest and best-paying. They're how the "weird, wrong" tone survives.
 
-### 6.6 Loot
+### 6.8 Loot
 
 - **Cards** for either deck. Offers of 3, weighted to your top two traits.
 - **Biomass.** Run currency for all upgrade sites and medic cards.
@@ -445,7 +487,7 @@ Meta currency. **Always kept on death.**
 
 | Source | Codons |
 |---|---|
-| Each mob killed | 1 |
+| Each mob killed (first spawn only; respawns pay 0) | 1 |
 | Elite | 5 |
 | Boss | 15 × tier |
 | Log fragment (first time only) | 5 |
@@ -579,7 +621,7 @@ tests/strain/               rules tests + bot sim (reuse the 120-run approach)
 |---|---|---|
 | S1 | **Trait core + battle** | Headless battles with formula cards. Bot sim. |
 | S2 | **Battle screen** | Pokémon-style scene, text box, hand. Test arena vs lab mobs. |
-| S3 | **Open world: Derelict** | Map gen, walking, mobs, caches, gates, exploration deck, boss. |
+| S3 | **Open world: Derelict** | Map gen, walking, mobs, ambushes, respawns, caches, gates, exploration deck, boss. |
 | S4 | **Meta loop** | Printer hub, Codons, Sequencer, death and relaunch. *First full loop.* |
 | S5 | **Kessra** | Planet kit, twist, star chart, tier scaling. |
 | S6 | **Upgrade sites, events, implants** | Splice pods, printer, surgery, trait-check events. |
@@ -598,9 +640,11 @@ Defaults are chosen so work can start. Change any of them.
 |---|---|---|
 | Q1 | Run length. A full 3-landing run is ~45 min, over the old 30-min cap. OK? | Yes, with save-anywhere. Early runs are shorter anyway. |
 | Q2 | Six traits, or fewer (e.g. 3: Body, Mind, Gut)? | Six. Fewer makes builds samey. |
-| Q3 | Somatic (run-only) trait boosts, or meta-only? | Both. Pods give runs their own shape. |
+| Q3 | Somatic (run-only) trait boosts, or meta-only? | **Decided: keep somatic boosts.** |
 | Q4 | Do cards ever upgrade at all? | Never. Only thresholds unlock with traits. |
-| Q5 | Up to 3 enemies per battle, or strict 1-v-1 like Pokémon? | Up to 3. Keeps AoE and Tag cards useful. |
+| Q5 | Up to 3 enemies per battle, or strict 1-v-1 like Pokémon? | **Decided: up to 3.** |
+| Q11 | Respawns and ambushes? | **Decided: both.** Rules in 6.5 and 6.6. Numbers to tune in the bot sim. |
+| Q12 | Should resting at a vent respawn the whole planet, or only nearby zones? | Whole planet except the vent's zone. |
 | Q6 | Overworld: tap-to-path or d-pad? | Tap-to-path, d-pad as a setting. |
 | Q7 | Can the player return to a cleared planet in the same run? | No. Forward only. |
 | Q8 | Title? | *Reprint: Strain* (working). |
