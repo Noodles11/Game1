@@ -38,3 +38,4 @@ docs/         Plan, open questions, decisions
 ```
 
 Design notes: [docs/GAME_PLAN.md](docs/GAME_PLAN.md), [docs/DECISIONS.md](docs/DECISIONS.md).
+Alternative version (traits, open world, Pokémon-style battles): [docs/STRAIN_DESIGN.md](docs/STRAIN_DESIGN.md).
