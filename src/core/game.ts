@@ -39,6 +39,8 @@ export type GameEvent =
   | { type: 'splice'; uid: number }
   | { type: 'empower'; uid: number; amount: number }
   | { type: 'warp' }
+  /** The ship leaves the lab for a world: play the launch and crash. */
+  | { type: 'launch'; world: string }
   | { type: 'resonate' }
   | { type: 'summon'; uid: number }
   | { type: 'reflect'; amount: number }
@@ -338,7 +340,8 @@ export class Game {
   private updateVisibility() {
     for (let i = this.pos; i < Math.min(this.segments.length, this.pos + VIEW_RANGE + 1); i++) {
       const s = this.segments[i];
-      if (i === this.pos || !s.dark || s.lit) s.revealed = true;
+      // hatches and wreckage are always seen from a distance, dark or not
+      if (i === this.pos || !s.dark || s.lit || s.feature === 'door' || s.feature === 'debris') s.revealed = true;
     }
   }
 
@@ -373,7 +376,7 @@ export class Game {
       case 'pod': return 'A splice pod glows ahead. Pour biomass in to mutate a card.';
       case 'surgery': return 'A surgery bay. It cuts defects and drawbacks out of cards, for biomass.';
       case 'enemies': return 'Something waits ahead. Advance to fight.';
-      case 'exit': return this.world ? 'The way out. Walk on to return to the map.' : 'Light. Real light. Keep walking.';
+      case 'exit': return this.world ? 'The tunnel forks ahead. Walk on to choose a passage.' : 'Light. Real light. Keep walking.';
       case 'event': return 'Something here is worth a look.';
       default: return 'The corridor goes on.';
     }
@@ -661,9 +664,16 @@ export class Game {
         if (this.rng.next() < 0.45) this.mapGates[r] = { kind: this.rng.pick<SecretKind>(['reliquary', 'lair', 'vat', 'shortcut']), used: false };
       }
     }
-    this.segments = [];
-    this.pos = 0;
+    // The wreck, then the first fork. You stand at the fork; the wreck is behind you.
+    const wreck: Segment = {
+      feature: 'debris', dark: false, lit: true, revealed: true, cleared: true, shape: 'cavern',
+      whisper: 'You crawl out through a split in the hull. Behind you, the ship burns quietly.',
+    };
+    const fork: Segment = { feature: 'exit', dark: false, lit: true, revealed: true, cleared: false };
+    this.segments = [wreck, fork];
+    this.pos = 1;
     this.enterMap();
+    this.emit({ type: 'launch', world: id });
     this.emit({ type: 'whisper', text: def.crash });
     return true;
   }
@@ -713,13 +723,20 @@ export class Game {
     node.hidden = false;
     node.visited = true;
     this.mapNode = node.id;
-    this.segments = this.buildNode(node);
-    this.pos = 0;
-    this.segments[0].revealed = true;
+    // The path goes on: the fork you stood at becomes plain tunnel, and the chosen passage follows it.
+    const fork = this.segments[this.pos];
+    if (fork) {
+      fork.feature = 'none';
+      fork.cleared = true;
+    }
+    this.segments.push(...this.buildNode(node));
+    this.pos++;
+    const here = this.segments[this.pos];
+    here.revealed = true;
     this.updateVisibility();
     this.phase = 'explore';
-    this.emit({ type: 'warp' });
-    if (this.segments[0].whisper) this.emit({ type: 'whisper', text: this.segments[0].whisper });
+    this.emit({ type: 'step' });
+    if (here.whisper) this.emit({ type: 'whisper', text: here.whisper });
     this.newSurveyTurn();
     return true;
   }
@@ -776,10 +793,8 @@ export class Game {
   }
 
   /** Walked off the end of a node's corridor. */
+  /** Walked to the end of a node's corridor: it ends in the next fork. */
   private completeNode() {
-    this.segments = [];
-    this.pos = 0;
-    this.emit({ type: 'warp' });
     this.enterMap();
   }
 

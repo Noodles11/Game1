@@ -617,7 +617,8 @@ describe('worlds: map', () => {
     locker.kind = 'locker';
     expect(g.travel(locker.id)).toBe(true);
     expect(g.phase).toBe('explore');
-    expect(g.segments.map((s) => s.feature)).toEqual(['none', 'crate', 'exit']);
+    // the path is continuous: the node's corridor follows the fork you stood at
+    expect(g.segments.slice(g.pos).map((s) => s.feature)).toEqual(['none', 'crate', 'exit']);
     g.advance();
     g.advance();
     expect(g.phase).toBe('map');
@@ -878,7 +879,7 @@ describe('landscapes', () => {
       g.phase = 'mainframe';
       g.chooseWorld('kessra');
       g.travel(g.passages()[0].id);
-      for (const s of g.segments) {
+      for (const s of g.segments.slice(g.pos)) {
         if (s.shape === 'cavern') caverns++;
         else tunnels++;
         if (s.feature === 'door' || s.feature === 'debris' || s.feature === 'exit') expect(s.shape).not.toBe('cavern');
@@ -1594,5 +1595,34 @@ describe('the body: five limbs, five slots', () => {
     g.segments[d].revealed = true;
     g.force();
     expect(g.body.larm.hp + g.body.rarm.hp).toBeLessThan(8);
+  });
+});
+
+describe('one continuous path', () => {
+  it('landing puts you at the first fork with the wreck behind you; each node extends the same path', () => {
+    const g = new Game(3);
+    g.phase = 'mainframe';
+    g.chooseWorld('kessra');
+    expect(g.pos).toBe(1);
+    expect(g.segments[0].feature).toBe('debris');
+    expect(g.segments[1].feature).toBe('exit');
+    const node = g.passages()[0];
+    node.kind = 'locker';
+    g.travel(node.id);
+    expect(g.pos).toBe(2);
+    expect(g.segments[1].feature).toBe('none');
+    const len = g.segments.length;
+    for (let k = 0; k < 10 && (g.phase as string) === 'explore'; k++) g.advance();
+    expect(g.phase).toBe('map');
+    expect(g.segments.length).toBe(len);
+    expect(g.segments[g.pos].feature).toBe('exit');
+  });
+
+  it('hatches and wreckage are seen from a distance, even in the dark', () => {
+    const g = new Game(4);
+    const d = g.segments.findIndex((s) => s.feature === 'door' && s.dark);
+    g.pos = d - 3;
+    (g as unknown as { updateVisibility(): void }).updateVisibility();
+    expect(g.segments[d].revealed).toBe(true);
   });
 });

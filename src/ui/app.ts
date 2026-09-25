@@ -8,6 +8,7 @@ import { FORCE_COST, Game, RELIQUARY_PRICE, freshMeta, type GameEvent } from '..
 import type { CardInstance, EnemyState, MapNode, Meta } from '../core/types';
 import { BOONS, EVENTS, LOGS, MAP_ROWS, WORLDS, WORLD_ORDER } from '../core/worlds';
 import { PASSAGE_SPREAD, Stage, enemySlot, passageSlot } from '../render/stage';
+import { LAUNCH_MS } from '../render/stage';
 import { cardArt, cardArtDefs, germArt } from './cardart';
 
 /** How long a card takes to print into the hand, and the gap between cards. */
@@ -404,13 +405,19 @@ export class App {
   }
 
   private async play(events: GameEvent[]) {
-    const paced = events.some((e) => e.type === 'enemyAct');
+    const paced = events.some((e) => e.type === 'enemyAct' || e.type === 'launch');
     if (paced) {
       this.busy = true;
       this.dock.classList.add('busy');
     }
     for (const e of events) {
       if (e.type === 'enemyAct') await sleep(420);
+      if (e.type === 'launch') {
+        this.stage.onEvent(e);
+        this.overlay.innerHTML = '';
+        await sleep(LAUNCH_MS);
+        continue;
+      }
       this.stage.onEvent(e);
       this.showEvent(e);
       if (paced && e.type === 'playerHit') await sleep(140);
@@ -565,7 +572,8 @@ export class App {
     this.mapEl.innerHTML = showMap ? this.mapHtml() : '';
     if (g.phase === 'map') {
       this.overlay.classList.remove('crowd');
-      this.overlay.innerHTML = this.passagesHtml();
+      // no passage buttons over the crash sequence
+      this.overlay.innerHTML = this.busy ? '' : this.passagesHtml();
       return;
     }
     if (g.phase !== 'combat' || !g.combat) {

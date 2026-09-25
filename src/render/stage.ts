@@ -67,6 +67,9 @@ const BIOMES: Record<string, Biome> = {
   },
 };
 
+/** How long the launch-and-crash sequence runs, before the walk out of the wreck. */
+export const LAUNCH_MS = 4600;
+
 /** How wide the junction wall's openings spread, as a fraction of the stage width. */
 export const PASSAGE_SPREAD = 0.56;
 
@@ -113,6 +116,10 @@ export class Stage {
   /** Shockwave rings from bursting enemies. */
   private rings: { x: number; y: number; r: number; max: number; life: number }[] = [];
   private lowHp = 0;
+  /** The launch and crash, playing over the scene: seconds in, and the world's colour. */
+  private cinema: { t: number; color: string } | null = null;
+  /** Seconds a walk step takes; the walk out of the wreck is slower. */
+  private walkDur = 0.62;
   private last = 0;
   private time = 0;
   private readonly reduced: boolean;
@@ -197,6 +204,11 @@ export class Stage {
       case 'block': this.sparks(this.cx, this.H * 0.78, INK.cryo, 6); break;
       case 'splice': this.sparks(this.cx, this.H * 0.5, INK.signal, 16, true); this.pulse = 1; break;
       case 'reveal': this.pulse = 1; break;
+      case 'launch':
+        this.cinema = { t: 0, color: this.game.world === 'kessra' ? '#1b9e94' : '#eea423' };
+        this.cam = this.camFrom = this.camTo = this.game.pos - 1;
+        this.walkT = 1;
+        break;
       case 'warp':
         this.cam = this.camFrom = this.camTo = this.game.pos;
         this.walkT = 1;
@@ -288,11 +300,23 @@ export class Stage {
 
   private update(dt: number) {
     if (this.walkT < 1) {
-      this.walkT = Math.min(1, this.walkT + dt / (this.reduced ? 0.2 : 0.62));
+      this.walkT = Math.min(1, this.walkT + dt / (this.reduced ? 0.2 : this.walkDur));
+      if (this.walkT >= 1) this.walkDur = 0.62;
       const e = 1 - Math.pow(1 - this.walkT, 3);
       this.cam = this.camFrom + (this.camTo - this.camFrom) * e;
-    } else {
+    } else if (!this.cinema) {
       this.cam = this.game.pos;
+    }
+    if (this.cinema) {
+      this.cinema.t += dt;
+      if (this.cinema.t * 1000 >= LAUNCH_MS) {
+        this.cinema = null;
+        // climb out of the wreck and walk to the first fork
+        this.camFrom = this.game.pos - 1;
+        this.camTo = this.game.pos;
+        this.walkT = 0;
+        this.walkDur = 1.8;
+      }
     }
     const decay = (v: number, rate: number) => Math.max(0, v - dt * rate);
     this.shake = decay(this.shake, 3);
@@ -368,6 +392,11 @@ export class Stage {
     const { ctx } = this;
     const g = this.game;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    if (this.cinema && this.drawCinema(this.cinema.t)) {
+      if (this.print) this.print.render(this.buf, this.dpr, this.time);
+      else this.plain?.drawImage(this.buf, 0, 0);
+      return;
+    }
     ctx.fillStyle = INK.void;
     ctx.fillRect(0, 0, this.W, this.H);
     ctx.save();
@@ -382,16 +411,14 @@ export class Stage {
     }
 
     if (this.biome.backdrop) this.drawBackdrop();
-    if (g.phase === 'map') {
-      this.drawJunction();
-    } else {
-      const first = Math.max(0, Math.floor(this.cam) - 1);
-      const lastSeg = Math.min(g.segments.length - 1, Math.floor(this.cam) + DRAW_AHEAD);
-      for (let i = lastSeg; i >= first; i--) {
-        this.drawSection(i);
-        // depth haze: everything drawn so far (this layer and those behind it) sinks a little further
-        if (i - this.cam > 0.5) this.veil(0.3);
-      }
+    // One continuous path. On a world, a corridor's exit is the next fork, drawn where it stands.
+    const first = Math.max(0, Math.floor(this.cam) - 1);
+    const lastSeg = Math.min(g.segments.length - 1, Math.floor(this.cam) + DRAW_AHEAD);
+    for (let i = lastSeg; i >= first; i--) {
+      if (this.isFork(i)) this.drawJunction(i, i - this.cam);
+      else this.drawSection(i);
+      // depth haze: everything drawn so far (this layer and those behind it) sinks a little further
+      if (i - this.cam > 0.5) this.veil(0.3);
     }
 
     const inFight = g.phase === 'combat' || g.phase === 'harvest';
@@ -399,6 +426,11 @@ export class Stage {
     this.drawParticles();
     ctx.restore();
     this.drawOverlays(inFight);
+    // the last moments of the crash: the wreck fades up out of black
+    if (this.cinema) {
+      ctx.fillStyle = `rgba(0,0,0,${1 - Math.min(1, (this.cinema.t - 3.6) / 1.0)})`;
+      ctx.fillRect(0, 0, this.W, this.H);
+    }
     if (this.print) this.print.render(this.buf, this.dpr, this.time);
     else this.plain?.drawImage(this.buf, 0, 0);
   }
@@ -461,6 +493,105 @@ export class Stage {
     main.drawImage(this.layer, 0, 0, pw, ph, x - pad, y - pad, pw / d, ph / d);
   }
 
+  /**
+   * Launch and crash, in four beats: the jump (star streaks), atmospheric entry (a planet rushing up through fire),
+   * impact (white flash, then black), and the wreck fading in. Returns false once the scene should draw beneath.
+   */
+  private drawCinema(t: number): boolean {
+    const { ctx } = this;
+    const W = this.W;
+    const H = this.H;
+    const cx = this.cx;
+    const cy = this.cy;
+    const color = this.cinema!.color;
+    if (t >= 3.6) return false;
+    ctx.fillStyle = '#05060a';
+    ctx.fillRect(0, 0, W, H);
+    const shake = (k: number) => {
+      if (this.reduced) return;
+      ctx.translate(noise(this.time * 60) * k, noise(this.time * 75 + 9) * k);
+    };
+    ctx.save();
+    if (t < 1.5) {
+      // the jump: stars stretch into lines
+      const speed = 0.2 + t * 1.6;
+      shake(t * 2);
+      for (let k = 0; k < 90; k++) {
+        const a = noise(k * 12.9) * Math.PI * 2 + k;
+        const r0 = ((noise(k * 3.1) + 1) / 2) * W * 0.2 + ((this.time * 300 * speed + k * 37) % (W * 0.8));
+        const r1 = r0 + 6 + speed * speed * 40;
+        ctx.strokeStyle = k % 5 ? 'rgba(241,231,207,0.85)' : color;
+        ctx.lineWidth = 1 + (r0 / W) * 2;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+        ctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+        ctx.stroke();
+      }
+      if (t > 1.2) {
+        ctx.fillStyle = `rgba(255,255,255,${(t - 1.2) / 0.3})`;
+        ctx.fillRect(-20, -20, W + 40, H + 40);
+      }
+    } else if (t < 3.1) {
+      // entry: the planet fills the view, fire tearing past the hull
+      const p = (t - 1.5) / 1.6;
+      shake(4 + p * 14);
+      const r = W * (0.25 + p * p * 2.2);
+      const py = cy + H * 0.55 - p * H * 0.2;
+      const g = ctx.createRadialGradient(cx - r * 0.3, py - r * 0.4, r * 0.1, cx, py, r);
+      g.addColorStop(0, '#f1e7cf');
+      g.addColorStop(0.35, color);
+      g.addColorStop(1, '#0b1a1c');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(cx, py, r, 0, Math.PI * 2);
+      ctx.fill();
+      for (let k = 0; k < 40; k++) {
+        const x = ((noise(k * 5.3) + 1) / 2) * W;
+        const len = H * (0.15 + p * 0.5) * (0.5 + ((noise(k * 2.2) + 1) / 2));
+        const y = H - ((this.time * 900 + k * 97) % (H + len));
+        const gr = ctx.createLinearGradient(x, y, x, y + len);
+        gr.addColorStop(0, 'rgba(255,230,160,0)');
+        gr.addColorStop(0.5, `rgba(238,164,35,${0.4 + p * 0.5})`);
+        gr.addColorStop(1, `rgba(218,65,43,${0.6 * p})`);
+        ctx.strokeStyle = gr;
+        ctx.lineWidth = 2 + (k % 4) * 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + noise(k) * 20, y + len);
+        ctx.stroke();
+      }
+      // cockpit frame, glowing red at the edges
+      const v = ctx.createRadialGradient(cx, cy, H * 0.25, cx, cy, H * 0.8);
+      v.addColorStop(0, 'rgba(0,0,0,0)');
+      v.addColorStop(1, `rgba(218,65,43,${0.3 + p * 0.5})`);
+      ctx.fillStyle = v;
+      ctx.fillRect(-20, -20, W + 40, H + 40);
+    } else {
+      // impact
+      const p = (t - 3.1) / 0.5;
+      ctx.fillStyle = p < 0.35 ? '#ffffff' : `rgba(5,5,8,1)`;
+      ctx.fillRect(-20, -20, W + 40, H + 40);
+      if (p >= 0.35) {
+        // a few last sparks in the dark
+        for (let k = 0; k < 14; k++) {
+          const a = noise(k * 4.4) * Math.PI;
+          const d = (p - 0.35) * W * (0.3 + ((noise(k) + 1) / 2) * 0.5);
+          ctx.fillStyle = `rgba(238,164,35,${1 - p})`;
+          ctx.fillRect(cx + Math.cos(a) * d, cy + H * 0.2 - Math.abs(Math.sin(a)) * d * 0.6, 3, 3);
+        }
+      }
+    }
+    ctx.restore();
+    return true;
+  }
+
+  /** Is this segment a fork: the end of a world corridor with passages beyond? */
+  private isFork(i: number): boolean {
+    const g = this.game;
+    const seg = g.segments[i];
+    return !!g.world && seg?.feature === 'exit' && g.passages().length > 0;
+  }
+
   /** A soft dark pool on the floor under a creature. */
   private groundShadow(x: number, fy: number, r: number, strength: number) {
     if (strength <= 0) return;
@@ -488,16 +619,22 @@ export class Stage {
   }
 
   /** A fork in the tunnel: a wall with one opening per path ahead. */
-  private drawJunction() {
+  /**
+   * The fork at the end of a corridor, drawn `off` sections further away than when you stand at it.
+   * As you walk up to it, off falls to 0 and the fork comes to meet you.
+   */
+  private drawJunction(i: number, off: number) {
     const { ctx } = this;
     const g = this.game;
     const bio = this.biome;
-    const nearZ = 0.9;
-    const farZ = 1.6;
+    const nearZ = Math.max(NEAR, 0.9 + off);
+    const farZ = 1.6 + off;
     const near = this.octagon(nearZ);
     const far = this.octagon(farZ);
-    const fog = this.fog(1.25);
-    const sd = this.segSeed(0) + 500;
+    const fog = this.fog(1.25 + off);
+    const sd = this.segSeed(i) + 500;
+    /** Screen x for a point that would be at fraction f of the width when you stand at the fork. */
+    const sx = (f: number) => this.cx + (f - 0.5) * this.W * (1.6 / farZ);
     if (bio.backdrop) {
       // Open cave: a floor, then a cliff face with the tunnel mouths cut into it.
       const yn = this.floorY(nearZ);
@@ -543,10 +680,10 @@ export class Stage {
     const n = paths.length;
     const u = this.unit(farZ);
     const fy = this.floorY(farZ);
-    const aw = (this.W * PASSAGE_SPREAD / n) * 0.62;
+    const aw = (this.W * PASSAGE_SPREAD / n) * 0.62 * (1.6 / farZ);
     const ah = u * 1.25;
     paths.forEach((node, i) => {
-      const x = passageSlot(i, n) * this.W;
+      const x = sx(passageSlot(i, n));
       const kind = node.hidden && !node.visited ? 'hidden' : node.kind;
       const col = KIND_COLOR[kind];
       const mouth = (scale: number, drop: number): Pt[] => {
@@ -604,20 +741,20 @@ export class Stage {
       const u = this.unit(farZ);
       const fyb = this.floorY(farZ);
       for (let k = 1; k < n; k++) {
-        const x = (passageSlot(k - 1, n) + passageSlot(k, n)) * 0.5 * this.W;
+        const x = sx((passageSlot(k - 1, n) + passageSlot(k, n)) * 0.5);
         this.drawSpire(x, fyb, u * 0.45, 0, sd + k * 29, 0.1);
       }
       // bigger clusters framing the fork, a little nearer
-      const zc = 1.15;
-      for (const side of [-1, 1]) this.drawSpire(this.cx + side * this.W * 0.44, this.floorY(zc), this.unit(zc), side, sd + side * 61, 0.05);
+      const zc = 1.15 + off;
+      for (const side of [-1, 1]) this.drawSpire(sx(0.5 + side * 0.44), this.floorY(zc), this.unit(zc), side, sd + side * 61, 0.05);
       this.drawFlora(sd, nearZ, farZ, 0.1, 0.9);
     } else {
       this.drawRing(96, nearZ, this.lampOn(96), false);
     }
     // the gateway stands in front of everything, bottom left
-    if (g.gateHere()) {
-      const zg = 1.05;
-      this.drawGateway(this.W * 0.13, this.floorY(zg), this.unit(zg) * 0.75, 0);
+    if (g.phase === 'map' && g.gateHere()) {
+      const zg = 1.05 + off;
+      this.drawGateway(sx(0.13), this.floorY(zg), this.unit(zg) * 0.75, this.fog(zg));
     }
   }
 
@@ -766,8 +903,8 @@ export class Stage {
       }
     }
 
-    // Hatch and wreckage sit in the near bulkhead's opening.
-    if (!hidden && zn > NEAR) {
+    // Hatch and wreckage sit in the near bulkhead's opening. They show even in the dark.
+    if (zn > NEAR) {
       if (seg.feature === 'door' && !seg.cleared) this.drawDoor(i, zn);
       if (seg.feature === 'debris') this.drawDebris(i, zn + 0.08, seg.cleared);
     }
